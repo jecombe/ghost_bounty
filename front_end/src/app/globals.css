@@ -1,0 +1,796 @@
+@import "tailwindcss";
+
+:root {
+  --ocean-deep: #060e1a;
+  --ocean-mid: #0a1628;
+  --ocean-light: #0f2240;
+  --wave: #1a4a8a;
+  --foam: #3b82f6;
+  --sand: #d4a76a;
+  --gold: #f59e0b;
+  --hit-red: #ef4444;
+  --miss-blue: #334155;
+  --military-green: #2d4a22;
+  --military-dark: #1a2e14;
+  --radar-green: #00ff88;
+  --sonar-cyan: #00e5ff;
+
+  /* Casino theme */
+  --neon-gold: #FFD700;
+  --casino-green: #00C853;
+  --jackpot-red: #FF1744;
+  --casino-purple: #AA00FF;
+  --casino-amber: #FFB300;
+}
+
+@theme inline {
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--ocean-deep) !important;
+  color: #e2e8f0 !important;
+  font-family: Arial, Helvetica, sans-serif;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* ========================
+   TEAM SEAS OCEAN BACKGROUND
+   Adapted from Paulina Hetman / WebDevSimplified
+   ======================== */
+
+.ts-landscape:after,
+.ts-landscape:before,
+.ts-landscape *,
+.ts-landscape *:after,
+.ts-landscape *:before {
+  position: absolute;
+}
+
+.ts-landscape {
+  height: 100vh;
+  width: 100vw;
+  background-image: linear-gradient(var(--v1), var(--s1), var(--v1));
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: -2;
+  overflow: hidden;
+  transition: background-image 3s;
+}
+
+.ts-front {
+  z-index: 1;
+  bottom: 0;
+  left: 0;
+  right: 0;
+}
+
+/* Mountains */
+.ts-mountain {
+  border-radius: 180% 80% 0% 0%/60vmin 60vmin 0% 0%;
+  width: 40vmin;
+  height: 30vmin;
+  bottom: 50%;
+  left: -10vmin;
+  background: var(--s1);
+  background-image: linear-gradient(var(--v1), var(--v2) 30%, var(--v3));
+  box-shadow: inset -10px 0 10px -10px var(--s1);
+  transition: all 3s;
+}
+.ts-mountain:before {
+  content: "";
+  bottom: 0;
+  width: inherit;
+  height: inherit;
+  background: inherit;
+  border-radius: inherit;
+  transform-origin: bottom center;
+  transform: scaleX(1) scaleY(-0.6);
+  filter: blur(3px);
+}
+.ts-mountain-2 {
+  left: 5vmin;
+  height: 15vmin;
+  width: 40vmin;
+  box-shadow: inset -15px 0 10px -14px var(--s1);
+  border-radius: 120% 50% 0% 0%/25vmin 25vmin 0% 0%;
+  background-image: linear-gradient(var(--v3), var(--v4));
+}
+.ts-mountain-3 {
+  border-radius: 80% 0% 0 0/100% 100% 0 0;
+  right: -85vmin;
+  width: 100vmin;
+  left: auto;
+  height: 12vmin;
+  background-image: linear-gradient(var(--s1), var(--v4));
+  box-shadow: inset 15px 0 10px -10px var(--s1);
+}
+.ts-mountain-3:after {
+  content: "";
+  border-radius: 60% 0 0 0/100% 0 0 0;
+  background: inherit;
+  width: 100%;
+  height: 0;
+  bottom: 0;
+  right: 20%;
+}
+
+/* Sun */
+.ts-sun {
+  background: white;
+  border-radius: 50%;
+  width: 20vmin;
+  height: 20vmin;
+  left: calc(60% - 10vmin);
+  top: 100%;
+  transform: translate3d(0, 0, 0);
+  animation: ts-rise 20s infinite;
+  box-shadow: 0 0 10px white;
+  opacity: var(--sun-scale);
+  transition: opacity 3s;
+}
+.ts-sun-container {
+  overflow: hidden;
+  width: 100%;
+  height: 50%;
+}
+.ts-sun-container-1:after {
+  content: "";
+  left: 0; right: 0; top: 0; bottom: 0;
+  background: radial-gradient(circle at 60% 100%, var(--s2), transparent);
+  animation: ts-fade 20s infinite;
+  mix-blend-mode: color-burn;
+}
+.ts-sun-container-reflection {
+  top: 50%;
+  background: radial-gradient(circle at 60% 0%, var(--s2), transparent);
+}
+.ts-sun-container-reflection .ts-sun {
+  background: linear-gradient(white, rgba(255, 255, 255, 0));
+  box-shadow: none;
+  filter: blur(5px);
+  opacity: 1;
+  top: 0;
+  transform: translate3d(0, -20vmin, 0);
+  animation-name: ts-rise-reflection;
+}
+
+@keyframes ts-rise {
+  100% { transform: translate3d(0, -100vh, 20vmin); }
+}
+@keyframes ts-rise-reflection {
+  30% { opacity: 0; transform: translate3d(0, 5vmin, 0); }
+  100% { opacity: 0; transform: translate3d(0, 80vmin, 0); }
+}
+@keyframes ts-fade {
+  10% { opacity: 1; }
+  30%, 70% { opacity: 0; }
+}
+
+/* Clouds */
+.ts-cloud {
+  width: 80vmin;
+  height: 6vmin;
+  background: currentcolor;
+  color: var(--cloud);
+  top: 24vmin;
+  left: 20vmin;
+  border-radius: 50%;
+  box-shadow: 30vmin 0.5vmin 0 -1vmin currentcolor, -25vmin 0 0 -0.6vmin currentcolor;
+  opacity: 0.3;
+  transform: translate3d(-150vmin, 0, 0);
+  animation: ts-clouds 120s infinite;
+  animation-delay: -10s;
+  transition: color 3s;
+}
+.ts-cloud-1 {
+  left: 60vmin;
+  top: 15vmin;
+  opacity: 0.2;
+  filter: blur(1px);
+  animation-delay: 0s;
+  animation-duration: 100s;
+}
+
+@keyframes ts-clouds {
+  50% { transform: translate3d(0, 0, 0); }
+  100% { transform: translate3d(150vmin, 0, 0); }
+}
+
+/* Water */
+.ts-water {
+  top: 50%;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(var(--water-top), var(--v2));
+  overflow: hidden;
+  box-shadow: inset 0 1px 4px -3px white;
+  transition: background 3s;
+}
+
+/* Light rays on water */
+.ts-light {
+  height: 0.5vmin;
+  width: 20vmin;
+  background: white;
+  left: 20%;
+  right: 0;
+  margin: auto;
+  top: calc(50% + 1vmin);
+  animation: ts-light 20s infinite;
+  opacity: 0;
+  transform: scaleX(0.1) translate3d(0%, 0, 0);
+  border-radius: 0.25vh;
+  filter: blur(1px);
+}
+.ts-light-1 { top: calc(50% + 2vmin); animation-delay: 0.5s; }
+.ts-light-2 { top: calc(50% + 3vmin); width: 18vmin; animation-delay: 1s; }
+.ts-light-3 { top: calc(50% + 4vmin); width: 18vmin; animation-delay: 1.5s; }
+.ts-light-4 { top: calc(50% + 5vmin); width: 16vmin; animation-delay: 2s; }
+.ts-light-5 { top: calc(50% + 8vmin); width: 14vmin; animation-delay: 2.5s; }
+.ts-light-6 { top: calc(50% + 9vmin); width: 10vmin; animation-delay: 3s; }
+.ts-light-7 { top: calc(50% + 7vmin); width: 12vmin; animation-delay: 3.5s; }
+
+@keyframes ts-light {
+  5% { opacity: 1; transform: scaleX(1); }
+  10% { opacity: 0.6; transform: scaleX(1) translate3d(5%, 0, 0); }
+  15% { opacity: 0.6; transform: scaleX(1) translate3d(-5%, 0, 0); }
+  20% { opacity: 0; transform: scaleX(0.1) translate3d(0, 0, 0); }
+}
+
+/* Water splashes */
+.ts-splash {
+  width: 8vmin;
+  height: 3vmin;
+  border: 2px solid var(--s1);
+  box-shadow: 0 0 2px var(--s1);
+  border-radius: 50%;
+  bottom: 5vmin;
+  left: 70%;
+  animation: ts-splash 9s infinite;
+  transform: scale(0);
+  transition: border-color 3s, box-shadow 3s;
+}
+.ts-splash-stone {
+  bottom: 15vh;
+  left: -3vmin;
+  height: 10vmin;
+  width: 30vmin;
+}
+.ts-splash-4 {
+  bottom: 15vmin;
+  left: auto;
+  right: -2vmin;
+}
+.ts-splash-5 { bottom: 20vmin; }
+.ts-delay-1 { animation-delay: 1s; }
+.ts-delay-2 { animation-delay: 2s; }
+.ts-delay-3 { animation-delay: 3s; }
+.ts-delay-4 { animation-delay: 4s; }
+
+@keyframes ts-splash {
+  50%, 100% { transform: scale(1); opacity: 0; }
+}
+
+/* Lotus flowers */
+.ts-lotus {
+  width: 10vmin;
+  height: 5vmin;
+  background: conic-gradient(var(--v3) 0deg 40deg, transparent 50deg 70deg, var(--v3) 80deg);
+  border-radius: 50%;
+  transition: background 3s;
+}
+.ts-lotus-1 { bottom: 10vmin; right: 5vmin; width: 20vmin; }
+.ts-lotus-2 { bottom: 20vmin; right: 15vmin; height: 3vmin; transform: skew(-10deg); opacity: 0.5; mix-blend-mode: multiply; }
+.ts-lotus-3 { bottom: 10vmin; right: 35vmin; transform: rotate(180deg) skew(-20deg); opacity: 0.8; width: 15vmin; }
+
+/* Foreground stone */
+.ts-stone {
+  bottom: -5vh;
+  left: 0;
+  height: 20vmin;
+  width: 40vmin;
+  background: var(--v4);
+  box-shadow: inset 0 0 20px -5px rgba(0, 0, 0, 0.2);
+  border-radius: 0% 200% 0 0/0% 200%;
+  transition: background 3s;
+}
+.ts-stone:after {
+  content: "";
+  background: var(--v3);
+  width: 100%;
+  height: 100%;
+  right: -15%;
+  border-radius: inherit;
+  z-index: -1;
+  transform: scaleX(1.3) skew(10deg);
+  box-shadow: inset 0 0 20px -5px rgba(0, 0, 0, 0.4);
+}
+
+/* Grass */
+.ts-grass {
+  height: 40vmin;
+  width: 10vmin;
+  border-radius: 0 60% 0 0/0 100% 0 0;
+  bottom: 0;
+  border-right: 5px solid var(--v4);
+  box-shadow: 1px 0 0 var(--s1);
+  filter: drop-shadow(-0.5vmin 6vmin 0 var(--s2)) drop-shadow(-4.5vmin 10vmin 0 var(--v3));
+  transition: border-color 3s, box-shadow 3s, filter 3s;
+}
+.ts-grass-1 {
+  left: 14vmin;
+  bottom: -2vmin;
+  transform: scaleX(-1);
+  box-shadow: 2px 0 0 var(--v4);
+  border-color: var(--v3);
+  filter: drop-shadow(-1vmin 5vmin 0 var(--v3)) drop-shadow(-80vmin 5vmin 0 var(--v4));
+}
+.ts-grass-2 {
+  right: 0;
+  left: auto;
+  height: 20vmin;
+  bottom: -2vmin;
+  transform: scaleX(-1);
+}
+
+/* Reeds */
+.ts-reed {
+  height: 40vmin;
+  width: 0.5vmin;
+  bottom: 0;
+  left: 10vmin;
+  color: var(--v4);
+  background: currentColor;
+  transform-origin: bottom center;
+  transform: rotate(4deg);
+  box-shadow: inset -1px 0 0 var(--s2), -6vmin 3vmin 0 0, 80vmin 0 0 0;
+  animation: ts-verticalise 20s infinite;
+  transition: color 3s, box-shadow 3s;
+}
+.ts-reed-1 {
+  color: var(--s2);
+  left: 15vmin;
+  height: 50vmin;
+  bottom: -5vmin;
+  transform: rotate(-2deg);
+  animation: ts-verticalise-1 20s infinite;
+  box-shadow: inset -1px 0 0 var(--s1), 6vmin 13vmin 0 0 var(--s1), 80vmin 10vmin 0 0 var(--v3);
+}
+.ts-reed:after {
+  content: "";
+  width: 1.5vmin;
+  height: 10vmin;
+  background: currentcolor;
+  border-radius: 0.75vmin;
+  top: 0;
+  left: -0.5vmin;
+  box-shadow: inherit;
+}
+
+@keyframes ts-verticalise {
+  0%, 10% { transform: rotate(4deg); }
+  30%, 70% { transform: rotate(0); }
+}
+@keyframes ts-verticalise-1 {
+  0%, 10% { transform: rotate(-2deg); }
+  45%, 70% { transform: rotate(0) translateY(-6vmin); }
+}
+
+/* ========================
+   CASINO ANIMATIONS
+   ======================== */
+
+@keyframes coin-flip {
+  0% { transform: rotateY(0deg); }
+  25% { transform: rotateY(720deg) scale(1.1); }
+  50% { transform: rotateY(1440deg) scale(1.0); }
+  75% { transform: rotateY(2160deg) scale(1.05); }
+  100% { transform: rotateY(2880deg) scale(1); }
+}
+
+@keyframes reel-spin {
+  0% { transform: translateY(0); }
+  100% { transform: translateY(-100%); }
+}
+
+@keyframes dice-roll {
+  0% { transform: rotate(0deg) scale(1); }
+  25% { transform: rotate(90deg) scale(1.1); }
+  50% { transform: rotate(180deg) scale(0.9); }
+  75% { transform: rotate(270deg) scale(1.1); }
+  100% { transform: rotate(360deg) scale(1); }
+}
+
+@keyframes win-glow {
+  0% { box-shadow: 0 0 10px rgba(255, 215, 0, 0.3); }
+  50% { box-shadow: 0 0 40px rgba(255, 215, 0, 0.8), 0 0 80px rgba(255, 215, 0, 0.4); }
+  100% { box-shadow: 0 0 10px rgba(255, 215, 0, 0.3); }
+}
+
+@keyframes jackpot-flash {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+@keyframes slot-stop {
+  0% { transform: translateY(-20px); opacity: 0; }
+  60% { transform: translateY(5px); opacity: 1; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes result-pop {
+  0% { transform: scale(0); opacity: 0; }
+  50% { transform: scale(1.2); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.coin-spinning {
+  animation: coin-flip 2s ease-out forwards;
+}
+
+.dice-rolling {
+  animation: dice-roll 0.3s linear infinite;
+}
+
+.win-glow {
+  animation: win-glow 1.5s ease-in-out infinite;
+}
+
+/* ========================
+   COIN FLIP OVERLAY
+   ======================== */
+
+.coin-overlay-coin {
+  width: 160px;
+  height: 160px;
+  position: relative;
+  transform-style: preserve-3d;
+  perspective: 800px;
+}
+
+@media (min-width: 640px) {
+  .coin-overlay-coin {
+    width: 200px;
+    height: 200px;
+  }
+}
+
+.coin-face {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  backface-visibility: hidden;
+  border: 4px solid;
+}
+
+.coin-face-heads {
+  background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 40%, #d97706 100%);
+  border-color: rgba(217, 119, 6, 0.6);
+  box-shadow: inset 0 2px 20px rgba(255, 255, 255, 0.2), 0 8px 32px rgba(245, 158, 11, 0.3);
+}
+
+.coin-face-tails {
+  background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 40%, #2563eb 100%);
+  border-color: rgba(37, 99, 235, 0.6);
+  box-shadow: inset 0 2px 20px rgba(255, 255, 255, 0.2), 0 8px 32px rgba(59, 130, 246, 0.3);
+  transform: rotateY(180deg);
+}
+
+/* Spinning state — continuous fast rotation */
+@keyframes coin-overlay-spin {
+  0% { transform: rotateY(0deg); }
+  100% { transform: rotateY(1080deg); }
+}
+
+.coin-overlay-spin {
+  animation: coin-overlay-spin 1.2s linear infinite;
+}
+
+/* Landing — decelerate and wobble */
+@keyframes coin-overlay-land {
+  0% { transform: rotateY(0deg) scale(1); }
+  40% { transform: rotateY(540deg) scale(1.05); }
+  70% { transform: rotateY(700deg) scale(1); }
+  85% { transform: rotateY(715deg) scale(0.98); }
+  100% { transform: rotateY(720deg) scale(1); }
+}
+
+.coin-overlay-land {
+  animation: coin-overlay-land 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+/* Settled — show correct face with a gentle bounce */
+@keyframes coin-overlay-settle {
+  0% { transform: rotateY(0deg) translateY(0) scale(1); }
+  40% { transform: rotateY(0deg) translateY(-12px) scale(1.08); }
+  100% { transform: rotateY(0deg) translateY(0) scale(1); }
+}
+
+.coin-overlay-settled {
+  animation: coin-overlay-settle 0.4s ease-out forwards;
+}
+
+/* Win glow ring around coin */
+.coin-overlay-win .coin-face-active {
+  box-shadow:
+    inset 0 2px 20px rgba(255, 255, 255, 0.3),
+    0 0 40px rgba(255, 215, 0, 0.6),
+    0 0 80px rgba(255, 215, 0, 0.3),
+    0 0 120px rgba(255, 215, 0, 0.1);
+}
+
+.coin-overlay-lose .coin-face-active {
+  box-shadow:
+    inset 0 2px 10px rgba(0, 0, 0, 0.2),
+    0 8px 24px rgba(0, 0, 0, 0.3);
+  filter: brightness(0.7) saturate(0.5);
+}
+
+.jackpot-flash {
+  animation: jackpot-flash 0.3s ease-in-out 5;
+}
+
+.result-pop {
+  animation: result-pop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.slot-stop {
+  animation: slot-stop 0.3s ease-out forwards;
+}
+
+/* ========================
+   LEGACY ANIMATIONS (kept for compatibility)
+   ======================== */
+
+@keyframes ripple {
+  0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); }
+  100% { box-shadow: 0 0 0 12px rgba(59, 130, 246, 0); }
+}
+
+@keyframes explode {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.2); }
+  100% { transform: scale(1); }
+}
+
+@keyframes splash {
+  0% { transform: scale(0.8); opacity: 0; }
+  50% { transform: scale(1.1); opacity: 1; }
+  100% { transform: scale(1); opacity: 0.7; }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+@keyframes compass-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes water-shimmer {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+.float-slow {
+  animation: float 4s ease-in-out infinite;
+}
+
+.float-medium {
+  animation: float 3s ease-in-out infinite;
+  animation-delay: -1s;
+}
+
+/* ========================
+   TRANSACTION MODAL
+   ======================== */
+.tx-modal-enter {
+  animation: modal-slide-up 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes modal-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.scan-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, rgba(255, 215, 0, 0.15), transparent);
+  animation: scan-move 3s ease-in-out infinite;
+}
+
+@keyframes scan-move {
+  0% { top: 0; }
+  100% { top: 100%; }
+}
+
+/* ========================
+   SCROLLBAR
+   ======================== */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--ocean-deep);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--wave);
+  border-radius: 3px;
+}
+
+/* ========================
+   CONTENT BACKDROP
+   ======================== */
+.content-backdrop {
+  background: rgba(6, 14, 26, 0.65);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 215, 0, 0.04);
+}
+
+/* ========================
+   GLASS CARDS
+   ======================== */
+.glass {
+  background: rgba(10, 22, 40, 0.7);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 215, 0, 0.08);
+}
+
+.glass-light {
+  background: rgba(26, 74, 138, 0.15);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 215, 0, 0.05);
+}
+
+/* Casino panel style */
+.panel-casino {
+  background: linear-gradient(180deg, rgba(10, 22, 40, 0.9) 0%, rgba(6, 14, 26, 0.95) 100%);
+  border: 1px solid rgba(255, 215, 0, 0.1);
+  box-shadow:
+    0 4px 30px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 215, 0, 0.03),
+    0 0 15px rgba(255, 215, 0, 0.02);
+}
+
+/* Military panel (kept for backward compatibility, now gold-tinted) */
+.panel-military {
+  background: linear-gradient(180deg, rgba(10, 22, 40, 0.9) 0%, rgba(6, 14, 26, 0.95) 100%);
+  border: 1px solid rgba(255, 215, 0, 0.08);
+  box-shadow:
+    0 4px 30px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.02);
+}
+
+/* ========================
+   TYPOGRAPHY
+   ======================== */
+.text-stencil {
+  font-family: "Impact", "Arial Black", sans-serif;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* ========================
+   BUTTON STYLES
+   ======================== */
+.btn-military {
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-military::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(255,255,255,0.05) 0%, transparent 50%);
+  pointer-events: none;
+}
+
+/* Casino button with gold gradient */
+.btn-casino {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(135deg, #b8860b 0%, #ffd700 50%, #b8860b 100%);
+  color: #1a1a2e;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  border: 1px solid rgba(255, 215, 0, 0.4);
+  box-shadow: 0 0 20px rgba(255, 215, 0, 0.15);
+  transition: all 0.2s;
+}
+
+.btn-casino:hover {
+  box-shadow: 0 0 30px rgba(255, 215, 0, 0.3);
+  transform: scale(1.02);
+}
+
+.btn-casino:active {
+  transform: scale(0.98);
+}
+
+.btn-casino::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(255,255,255,0.15) 0%, transparent 50%);
+  pointer-events: none;
+}
+
+/* ========================
+   SLOT MACHINE
+   ======================== */
+.reel-container {
+  overflow: hidden;
+  position: relative;
+}
+
+.reel-strip {
+  transition: transform 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.reel-spinning .reel-strip {
+  transition: none;
+  animation: reel-spin 0.15s linear infinite;
+}
+
+/* ========================
+   RANGE SLIDER (Dice)
+   ======================== */
+input[type="range"].dice-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 8px;
+  border-radius: 4px;
+  outline: none;
+  background: linear-gradient(to right, #00C853, #FFD700 50%, #FF1744);
+  opacity: 0.9;
+}
+
+input[type="range"].dice-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #FFD700;
+  cursor: pointer;
+  box-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+  border: 2px solid rgba(255, 255, 255, 0.3);
+}
+
+input[type="range"].dice-slider::-moz-range-thumb {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #FFD700;
+  cursor: pointer;
+  box-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+  border: 2px solid rgba(255, 255, 255, 0.3);
+}

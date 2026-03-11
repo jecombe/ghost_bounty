@@ -1,0 +1,45 @@
+# Dependencies
+node_modules/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Next.js
+front_end/.next/
+front_end/out/
+
+# Hardhat
+smart_contract/artifacts/
+smart_contract/cache/
+smart_contract/types/
+smart_contract/fhevmTemp/
+smart_contract/deployments/sepolia/solcInputs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*
+
+# Coverage
+coverage/
+.nyc_output/
+
+# Next.js (smart_contract stray)
+smart_contract/.next/
+
+# Scripts with secrets
+smart_contract/scripts/uploadSecrets.*
+
+# Misc
+*.tsbuildinfo

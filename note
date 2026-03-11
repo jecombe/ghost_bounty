@@ -1,0 +1,77 @@
+                                                                 
+⏺ Aujourd'hui si un projet veut utiliser GhostBounty, voici ce   
+  qu'il doit faire :                                             
+                                                                 
+  Parcours actuel (trop compliqué)                               
+                                                                 
+  1. Aller sur ton site                                          
+  2. Connecter un wallet avec des USDC sur Sepolia
+  3. Comprendre ce qu'est le shield, l'operator, le FHE...
+  4. Créer un bounty manuellement
+  5. Dire aux devs "allez sur ce site, cherchez le bounty #7"
+
+  C'est pas un produit SaaS, c'est un prototype.
+
+  Ce qu'il faudrait pour un vrai SaaS
+
+  Le projet devrait juste faire ça :
+
+  1. S'inscrire en 30 secondes
+
+  - Connecte wallet + GitHub OAuth
+  - Autorise GhostBounty sur son repo (GitHub App)
+  - C'est tout
+
+  2. Créer un bounty en 1 clic depuis GitHub
+
+  Le projet owner commente sur une issue GitHub :
+  /bounty 500 USDC
+  Et c'est tout. Un bot GitHub ajoute un label "bounty" et un
+  commentaire :
+
+  GhostBounty — A confidential bounty has been posted on this
+  issue.
+  Claim it here
+
+  3. Le dev n'a presque rien à faire
+
+  - Il voit le label "bounty" sur l'issue
+  - Il travaille, ouvre une PR "Fixes #42"
+  - La PR est mergée → paiement automatique (pas besoin de
+  "claim" manuellement)
+
+  ---
+  Ce qu'il faut coder pour ça
+
+  ┌───────────┬──────────────────────────────────┬───────────┐
+  │ Composant │           Description            │ Difficult │
+  │           │                                  │     é     │
+  ├───────────┼──────────────────────────────────┼───────────┤
+  │ GitHub    │ Bot qui écoute les commentaires  │ Moyen     │
+  │ App       │ /bounty et les PR merges         │           │
+  ├───────────┼──────────────────────────────────┼───────────┤
+  │ Page      │ /project/owner/repo — liste les  │ Facile    │
+  │ projet    │ bounties d'un projet             │           │
+  ├───────────┼──────────────────────────────────┼───────────┤
+  │ Auto-clai │ Quand une PR est mergée, le      │           │
+  │ m sur     │ backend appelle claimBounty()    │ Moyen     │
+  │ merge     │ automatiquement (pas le dev)     │           │
+  ├───────────┼──────────────────────────────────┼───────────┤
+  │ API badge │ ghostbounty.xyz/api/badge/owner/ │ Facile    │
+  │           │ repo pour le README              │           │
+  ├───────────┼──────────────────────────────────┼───────────┤
+  │ Onboardin │ Le projet dépose des USDC une    │           │
+  │ g         │ seule fois dans un "budget", les │ Moyen     │
+  │ simplifié │  bounties puisent dedans         │           │
+  └───────────┴──────────────────────────────────┴───────────┘
+
+  Le plus impactant c'est la GitHub App — ça transforme le
+  produit de "un site web DeFi" à "un outil intégré dans GitHub
+  que les projets installent en 1 clic".
+
+  Tu veux que je commence par quoi ? Je te recommande dans cet
+  ordre :
+  1. Page projet (/project/[owner]/[repo]) — facile, rapide,
+  utile immédiatement
+  2. GitHub App + bot commentaire — le vrai game changer
+  3. Auto-claim sur merge — supprime la friction pour les devs
