@@ -199,7 +199,8 @@ export default function BountyPage() {
             console.error("[GhostBounty] executeClaim failed:", e);
             setWaitingClaimVerification(false);
             setExecutingClaim(false);
-            setClaimResult({ success: false, message: "PR verified but payment failed: " + (e?.shortMessage || e?.message || "Unknown error") });
+            console.error("[GhostBounty] executeClaim auto error:", e?.message);
+            setClaimResult({ success: false, message: "PR verified but payment execution failed. Try clicking 'Execute Payment' in the browse tab." });
           }
         } else if (status === 3) {
           // Claimed — success!
@@ -286,7 +287,8 @@ export default function BountyPage() {
       setRegisterPending(false);
     } catch (e: any) {
       console.error("[GhostBounty] Register failed:", e);
-      alert(e?.shortMessage || e?.message || "Registration failed");
+      console.error("[GhostBounty] Register error details:", e?.message);
+      alert("Registration failed. Please check your gist and try again.");
       setRegisterPending(false);
     }
   };
@@ -316,7 +318,8 @@ export default function BountyPage() {
       setCreateTxHash(hash);
     } catch (e: any) {
       console.error("Create bounty failed:", e);
-      alert(e?.shortMessage || e?.message || "Failed");
+      console.error("[GhostBounty] Create bounty error details:", e?.message);
+      alert("Bounty creation failed. Please check your inputs and try again.");
       setCreateStep("idle");
     }
   };
@@ -334,7 +337,8 @@ export default function BountyPage() {
       setClaimPending(false);
     } catch (e: any) {
       console.error("[GhostBounty] Claim tx failed:", e);
-      setClaimResult({ success: false, message: e?.shortMessage || e?.message || "Transaction failed" });
+      console.error("[GhostBounty] Claim tx error details:", e?.message);
+      setClaimResult({ success: false, message: "Transaction failed. Please check bounty ID and PR number." });
       setClaimPending(false);
     }
   };
@@ -346,8 +350,8 @@ export default function BountyPage() {
       console.log("[GhostBounty] executeClaim tx sent!");
       loadBounties(); // refresh after tx
     } catch (e: any) {
-      console.error("[GhostBounty] executeClaim failed:", e);
-      alert(e?.shortMessage || e?.message || "Execute claim failed");
+      console.error("[GhostBounty] executeClaim error details:", e?.message);
+      alert("Payment execution failed. Please try again.");
     }
   };
 
@@ -355,7 +359,8 @@ export default function BountyPage() {
     try {
       await writeContractAsync({ chainId, address: GHOST_BOUNTY_ADDRESS, abi: GHOST_BOUNTY_ABI, functionName: "cancelBounty", args: [BigInt(bountyId)] });
     } catch (e: any) {
-      alert(e?.shortMessage || e?.message || "Cancel failed");
+      console.error("[GhostBounty] Cancel error details:", e?.message);
+      alert("Cancel failed. Please try again.");
     }
   };
 
@@ -539,7 +544,7 @@ export default function BountyPage() {
                             Cancel
                           </button>
                         )}
-                        {b.status === 2 && (
+                        {b.status === 2 && b.claimedBy.toLowerCase() === address?.toLowerCase() && (
                           <button onClick={() => handleExecuteClaim(b.id)} className="text-xs px-3 py-1.5 rounded-lg bg-purple-500/10 text-purple-300 hover:bg-purple-500/20 border border-purple-500/20">
                             Execute Payment
                           </button>

@@ -20,10 +20,17 @@ const PRIVATE_KEY = loadPrivateKey();
 // ── Webhook signature verification ──────────────────────
 
 export function verifyWebhookSignature(payload: string, signature: string): boolean {
-  // Skip verification in dev if no secret is set
-  if (!WEBHOOK_SECRET) return true;
+  if (!WEBHOOK_SECRET) {
+    console.error("[GhostBounty] GITHUB_WEBHOOK_SECRET is not set — rejecting webhook");
+    return false;
+  }
+  if (!signature) return false;
   const expected = "sha256=" + crypto.createHmac("sha256", WEBHOOK_SECRET).update(payload).digest("hex");
-  return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
+  const expectedBuf = Buffer.from(expected);
+  const signatureBuf = Buffer.from(signature);
+  // timingSafeEqual throws on length mismatch — guard against it
+  if (expectedBuf.length !== signatureBuf.length) return false;
+  return crypto.timingSafeEqual(expectedBuf, signatureBuf);
 }
 
 // ── JWT for GitHub App authentication ───────────────────
