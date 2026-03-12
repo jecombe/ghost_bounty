@@ -534,7 +534,7 @@ export default function BountyPage() {
                             Claim this bounty
                           </button>
                         )}
-                        {(b.status === 0 || b.status === 1) && b.creator.toLowerCase() === address?.toLowerCase() && (
+                        {b.status === 0 && b.creator.toLowerCase() === address?.toLowerCase() && (
                           <button onClick={() => handleCancel(b.id)} className="text-xs px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20">
                             Cancel
                           </button>

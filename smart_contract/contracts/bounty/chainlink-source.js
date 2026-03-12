@@ -74,8 +74,9 @@ const bodyMatch =
   (pr.body.includes(issueRef) ||
     pr.body.includes(issueRefAlt) ||
     closesPattern.test(pr.body));
+const branchPattern = new RegExp(`(^|[^0-9])${issueNumber}($|[^0-9])`);
 const branchMatch =
-  pr.head && pr.head.ref && pr.head.ref.includes(issueNumber);
+  pr.head && pr.head.ref && branchPattern.test(pr.head.ref);
 
 if (!titleMatch && !bodyMatch && !branchMatch) {
   throw Error("PR does not reference the target issue");

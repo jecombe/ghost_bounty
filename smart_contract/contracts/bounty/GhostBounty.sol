@@ -36,6 +36,7 @@ contract GhostBounty is FunctionsClient, ReentrancyGuard, Pausable, Ownable2Step
     uint256 public constant SOURCE_TIMELOCK = 48 hours;
     uint256 public constant ADMIN_TIMELOCK = 24 hours;
     uint256 public constant MAX_FEE_BPS = 500; // 5%
+    uint256 public constant REGISTRATION_COOLDOWN = 7 days;
 
     // ========================
     // Config
@@ -109,6 +110,11 @@ contract GhostBounty is FunctionsClient, ReentrancyGuard, Pausable, Ownable2Step
     mapping(address => string) public devGithub;
     /// @dev Track pending verifications
     mapping(address => bool) public devVerificationPending;
+    /// @dev Track last registration time per address (cooldown for re-registration)
+    mapping(address => uint256) public devRegisteredAt;
+    /// @dev Track last claim timestamp per address (rate-limit LINK drain)
+    mapping(address => uint256) public lastClaimAttempt;
+    uint256 public constant CLAIM_COOLDOWN = 2 minutes;
 
     // ========================
     // Chainlink Request Tracking
@@ -316,6 +322,11 @@ contract GhostBounty is FunctionsClient, ReentrancyGuard, Pausable, Ownable2Step
         require(bytes(normalized).length > 0 && bytes(normalized).length <= MAX_USERNAME_LENGTH, "Invalid username");
         require(bytes(gistId).length > 0 && bytes(gistId).length <= 40, "Invalid gist ID");
         require(!devVerificationPending[msg.sender], "Verification already pending");
+        require(
+            devRegisteredAt[msg.sender] == 0 ||
+            block.timestamp >= devRegisteredAt[msg.sender] + REGISTRATION_COOLDOWN,
+            "Registration cooldown active"
+        );
         require(bytes(gistVerificationSource).length > 0, "Gist source not set");
         require(secretsExpiration == 0 || block.timestamp < secretsExpiration, "Secrets expired");
 
@@ -399,14 +410,12 @@ contract GhostBounty is FunctionsClient, ReentrancyGuard, Pausable, Ownable2Step
     // Cancel Bounty
     // ========================
 
-    /// @notice Cancel a bounty and get the escrow back. Works for Active or Pending bounties.
+    /// @notice Cancel a bounty and get the escrow back. Only works for Active bounties.
+    ///         Cannot cancel while Chainlink is verifying a claim (Pending/Verified).
     function cancelBounty(uint256 bountyId) external nonReentrant whenNotPaused {
         Bounty storage bounty = _bounties[bountyId];
         require(bounty.creator == msg.sender, "Not creator");
-        require(
-            bounty.status == BountyStatus.Active || bounty.status == BountyStatus.Pending,
-            "Cannot cancel"
-        );
+        require(bounty.status == BountyStatus.Active, "Cannot cancel");
 
         bounty.status = BountyStatus.Cancelled;
 
@@ -433,8 +442,12 @@ contract GhostBounty is FunctionsClient, ReentrancyGuard, Pausable, Ownable2Step
     ) external nonReentrant whenNotPaused returns (bytes32 requestId) {
         Bounty storage bounty = _bounties[bountyId];
         require(bounty.status == BountyStatus.Active, "Not active");
+        require(bytes(devGithub[msg.sender]).length > 0, "Must be registered dev");
+        require(block.timestamp >= lastClaimAttempt[msg.sender] + CLAIM_COOLDOWN, "Claim cooldown");
         require(bytes(claimVerificationSource).length > 0, "Source not set");
         require(secretsExpiration == 0 || block.timestamp < secretsExpiration, "Secrets expired");
+
+        lastClaimAttempt[msg.sender] = block.timestamp;
 
         // Move to Pending — prevents concurrent claims
         bounty.status = BountyStatus.Pending;
@@ -521,6 +534,7 @@ contract GhostBounty is FunctionsClient, ReentrancyGuard, Pausable, Ownable2Step
 
         devRegistry[reg.githubUsername] = reg.dev;
         devGithub[reg.dev] = reg.githubUsername;
+        devRegisteredAt[reg.dev] = block.timestamp;
 
         emit DevRegistered(reg.dev, reg.githubUsername);
     }
