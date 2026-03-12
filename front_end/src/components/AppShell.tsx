@@ -1,6 +1,8 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { cookieToInitialState } from "wagmi";
+import { config } from "@/lib/wagmi";
 import { Header } from "./Header";
 import { OceanBackground } from "./OceanBackground";
 
@@ -9,9 +11,10 @@ const Providers = dynamic(
   { ssr: false }
 );
 
-export function AppShell({ children }: { children: React.ReactNode }) {
+export function AppShell({ children, cookie }: { children: React.ReactNode; cookie?: string }) {
+  const initialState = cookie ? cookieToInitialState(config, cookie) : undefined;
   return (
-    <Providers>
+    <Providers initialState={initialState}>
       <OceanBackground />
       <Header />
       <main className="md:pl-52 relative z-10">

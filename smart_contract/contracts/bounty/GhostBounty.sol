@@ -80,7 +80,7 @@ contract GhostBounty is FunctionsClient, ReentrancyGuard, Pausable, Ownable2Step
     // Bounty Data
     // ========================
 
-    enum BountyStatus { Active, Pending, Claimed, Cancelled }
+    enum BountyStatus { Active, Pending, Verified, Claimed, Cancelled }
 
     struct Bounty {
         address creator;
@@ -144,6 +144,7 @@ contract GhostBounty is FunctionsClient, ReentrancyGuard, Pausable, Ownable2Step
     event BountyCreated(uint256 indexed bountyId, string repoOwner, string repoName, uint64 issueNumber, uint256 timestamp);
     event BountyCancelled(uint256 indexed bountyId, uint256 timestamp);
     event ClaimRequested(uint256 indexed bountyId, bytes32 indexed requestId, uint64 prNumber, uint256 timestamp);
+    event BountyVerified(uint256 indexed bountyId, address indexed developer, uint256 timestamp);
     event BountyPaid(uint256 indexed bountyId, address indexed developer, uint256 timestamp);
     event ClaimFailed(uint256 indexed bountyId, bytes32 indexed requestId, string reason);
     event DevRegistrationRequested(address indexed dev, string githubUsername, bytes32 indexed requestId);
@@ -560,9 +561,27 @@ contract GhostBounty is FunctionsClient, ReentrancyGuard, Pausable, Ownable2Step
             return;
         }
 
-        // Mark as claimed
-        bounty.status = BountyStatus.Claimed;
+        // Mark as verified — FHE payment deferred to executeClaim()
+        bounty.status = BountyStatus.Verified;
         bounty.claimedBy = developer;
+
+        emit BountyVerified(claim.bountyId, developer, block.timestamp);
+    }
+
+    // ========================
+    // Execute Verified Claim (FHE Payment)
+    // ========================
+
+    /// @notice Execute the FHE payment for a verified bounty claim.
+    ///         Anyone can call this after Chainlink verification succeeds.
+    function executeClaim(uint256 bountyId) external nonReentrant whenNotPaused {
+        Bounty storage bounty = _bounties[bountyId];
+        require(bounty.status == BountyStatus.Verified, "Not verified");
+
+        address developer = bounty.claimedBy;
+        require(developer != address(0), "No developer");
+
+        bounty.status = BountyStatus.Claimed;
 
         euint64 amount = bounty.encryptedAmount;
 
@@ -583,7 +602,7 @@ contract GhostBounty is FunctionsClient, ReentrancyGuard, Pausable, Ownable2Step
         // Allow developer to view the bounty amount
         FHE.allow(bounty.encryptedAmount, developer);
 
-        emit BountyPaid(claim.bountyId, developer, block.timestamp);
+        emit BountyPaid(bountyId, developer, block.timestamp);
     }
 
     // ========================

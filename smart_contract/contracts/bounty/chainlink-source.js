@@ -35,14 +35,18 @@ if (!/^\d+$/.test(prNumber) || !/^\d+$/.test(issueNumber)) {
 }
 
 // 1. Fetch the PR details
+const headers = {
+  "User-Agent": "GhostBounty-Chainlink",
+  Accept: "application/vnd.github.v3+json",
+};
+if (secrets && secrets.GITHUB_TOKEN) {
+  headers.Authorization = `Bearer ${secrets.GITHUB_TOKEN}`;
+}
+
 const prResponse = await Functions.makeHttpRequest({
   url: `https://api.github.com/repos/${repoOwner}/${repoName}/pulls/${prNumber}`,
   method: "GET",
-  headers: {
-    Authorization: `Bearer ${secrets.GITHUB_TOKEN}`,
-    "User-Agent": "GhostBounty-Chainlink",
-    Accept: "application/vnd.github.v3+json",
-  },
+  headers,
 });
 
 if (prResponse.error) {

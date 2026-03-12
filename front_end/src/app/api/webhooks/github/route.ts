@@ -68,16 +68,21 @@ async function handleIssueComment(payload: any, installationId: number) {
   // Add bounty label
   await addLabel(token, owner, repoName, issueNumber, "ghostbounty");
 
+  // Build pre-filled create link
+  const createLink = `${APP_URL}/bounty?tab=create&owner=${encodeURIComponent(owner)}&repo=${encodeURIComponent(repoName)}&issue=${issueNumber}&amount=${amount}`;
+
   // Post confirmation comment
   const body = [
     `### :ghost: GhostBounty`,
     ``,
     `A bounty of **${amount} USDC** has been suggested for this issue.`,
     ``,
-    `**To fund this bounty**, the project owner must create it on-chain:`,
-    `1. Go to [GhostBounty](${APP_URL}/bounty)`,
-    `2. Create a bounty for \`${owner}/${repoName}#${issueNumber}\` with the desired amount`,
-    `3. The reward will be encrypted — nobody can see the actual amount on-chain`,
+    `**To fund this bounty**, the project owner just needs to sign the transaction:`,
+    ``,
+    `> **[Create Bounty for ${owner}/${repoName}#${issueNumber}](${createLink})**`,
+    ``,
+    `The form is pre-filled — connect your wallet and sign to fund the bounty.`,
+    `The reward will be encrypted — nobody can see the actual amount on-chain.`,
     ``,
     `**To claim this bounty** (developers):`,
     `1. Open a PR that references this issue (e.g., "Fixes #${issueNumber}")`,

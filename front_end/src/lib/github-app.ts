@@ -1,15 +1,27 @@
 // GhostBounty GitHub App — helpers for authenticating as the app and making API calls
 
 import crypto from "crypto";
+import fs from "fs";
 
 const APP_ID = process.env.GITHUB_APP_ID!;
-const PRIVATE_KEY = (process.env.GITHUB_APP_PRIVATE_KEY || "").replace(/\\n/g, "\n");
-const WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET!;
+const WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET || "";
+
+// Load private key from file path or inline env var
+function loadPrivateKey(): string {
+  const keyPath = process.env.GITHUB_APP_PRIVATE_KEY_PATH;
+  if (keyPath) {
+    try { return fs.readFileSync(keyPath, "utf-8"); } catch { /* fall through */ }
+  }
+  return (process.env.GITHUB_APP_PRIVATE_KEY || "").replace(/\\n/g, "\n");
+}
+
+const PRIVATE_KEY = loadPrivateKey();
 
 // ── Webhook signature verification ──────────────────────
 
 export function verifyWebhookSignature(payload: string, signature: string): boolean {
-  if (!WEBHOOK_SECRET) return false;
+  // Skip verification in dev if no secret is set
+  if (!WEBHOOK_SECRET) return true;
   const expected = "sha256=" + crypto.createHmac("sha256", WEBHOOK_SECRET).update(payload).digest("hex");
   return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
 }

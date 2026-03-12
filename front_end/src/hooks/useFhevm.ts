@@ -92,14 +92,22 @@ export function useFhevm() {
     setStatus("loading");
     setError(undefined);
 
-    createFhevmInstance(provider, shouldForce)
+    console.log("[FHE] Starting init, forceReinit:", shouldForce);
+
+    // Timeout after 15s
+    const timeout = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("FHE SDK init timed out after 15s")), 15_000)
+    );
+
+    Promise.race([createFhevmInstance(provider, shouldForce), timeout])
       .then((inst) => {
+        console.log("[FHE] Ready");
         setInstance(inst);
         setStatus("ready");
         setError(undefined);
       })
       .catch((err) => {
-        console.error("FHEVM init error:", err);
+        console.error("[FHE] Init error:", err);
         setError(err);
         setStatus("error");
         initRef.current = false;
