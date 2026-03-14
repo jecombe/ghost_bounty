@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { headers } from "next/headers";
 import "./globals.css";
 import { AppShell } from "@/components/AppShell";
 
@@ -11,11 +12,14 @@ export const metadata: Metadata = {
   description: "Confidential USDC privacy pool powered by FHE encryption. Deposit and withdraw with full amount privacy.",
 };
 
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  const headersList = await headers();
+  const cookie = headersList.get("cookie") ?? "";
+
   return (
     <html lang="en" className="dark">
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased min-h-screen`}>
-        <AppShell>{children}</AppShell>
+        <AppShell cookie={cookie}>{children}</AppShell>
       </body>
     </html>
   );

@@ -35,14 +35,18 @@ if (!/^\d+$/.test(prNumber) || !/^\d+$/.test(issueNumber)) {
 }
 
 // 1. Fetch the PR details
+const headers = {
+  "User-Agent": "GhostBounty-Chainlink",
+  Accept: "application/vnd.github.v3+json",
+};
+if (secrets && secrets.GITHUB_TOKEN) {
+  headers.Authorization = `Bearer ${secrets.GITHUB_TOKEN}`;
+}
+
 const prResponse = await Functions.makeHttpRequest({
   url: `https://api.github.com/repos/${repoOwner}/${repoName}/pulls/${prNumber}`,
   method: "GET",
-  headers: {
-    Authorization: `Bearer ${secrets.GITHUB_TOKEN}`,
-    "User-Agent": "GhostBounty-Chainlink",
-    Accept: "application/vnd.github.v3+json",
-  },
+  headers,
 });
 
 if (prResponse.error) {
@@ -70,8 +74,9 @@ const bodyMatch =
   (pr.body.includes(issueRef) ||
     pr.body.includes(issueRefAlt) ||
     closesPattern.test(pr.body));
+const branchPattern = new RegExp(`(^|[^0-9])${issueNumber}($|[^0-9])`);
 const branchMatch =
-  pr.head && pr.head.ref && pr.head.ref.includes(issueNumber);
+  pr.head && pr.head.ref && branchPattern.test(pr.head.ref);
 
 if (!titleMatch && !bodyMatch && !branchMatch) {
   throw Error("PR does not reference the target issue");

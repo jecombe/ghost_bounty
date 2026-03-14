@@ -14,7 +14,7 @@ import { useFheBalances } from "@/hooks/useFheBalances";
 type Mode = "shield" | "unshield";
 
 export default function ShieldPage() {
-  const { address, isConnected } = useAccount();
+  const { address, isConnected, chainId } = useAccount();
   const { writeContractAsync } = useWriteContract();
   const { cusdcFormatted, decrypt, decrypting, decryptMsg, decryptError, canDecrypt, invalidate } = useFheBalances();
 
@@ -54,6 +54,7 @@ export default function ShieldPage() {
     try {
       setStep("approve");
       await writeContractAsync({
+        chainId,
         address: USDC_ADDRESS,
         abi: USDC_ABI,
         functionName: "approve",
@@ -62,6 +63,7 @@ export default function ShieldPage() {
 
       setStep("shield");
       const hash = await writeContractAsync({
+        chainId,
         address: CONFIDENTIAL_USDC_ADDRESS,
         abi: CONFIDENTIAL_USDC_ABI,
         functionName: "shield",
@@ -82,6 +84,7 @@ export default function ShieldPage() {
     try {
       setStep("shield");
       const hash = await writeContractAsync({
+        chainId,
         address: CONFIDENTIAL_USDC_ADDRESS,
         abi: CONFIDENTIAL_USDC_ABI,
         functionName: "unshield",

@@ -12,7 +12,7 @@ import { Sidebar } from "./Sidebar";
 export function Header() {
   const { address } = useAccount();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const { cusdcFormatted, cusdcBalance, decrypt, canDecrypt, decrypting } = useFheBalances();
+  const { cusdcFormatted, cusdcBalance, decrypt, canDecrypt, decrypting, fhevmStatus, decryptError, retryFhevm } = useFheBalances();
 
   const { data: usdcBalance } = useReadContract({
     address: USDC_ADDRESS,
@@ -56,6 +56,28 @@ export function Header() {
                 <span className="text-emerald-400 font-bold">{parseFloat(formatUnits(usdcBalance, 6)).toFixed(2)}</span>
                 <span className="text-emerald-400/40 text-[10px]">USDC</span>
               </div>
+            )}
+            {/* FHE SDK status indicator */}
+            {address && (
+              <button
+                onClick={fhevmStatus === "error" ? retryFhevm : undefined}
+                className={`hidden sm:flex items-center gap-1 text-[10px] font-mono px-2 py-1 rounded-lg border ${
+                  fhevmStatus === "ready"
+                    ? "bg-green-500/10 border-green-500/20 text-green-400"
+                    : fhevmStatus === "loading"
+                      ? "bg-amber-500/10 border-amber-500/20 text-amber-400"
+                      : fhevmStatus === "error"
+                        ? "bg-red-500/10 border-red-500/20 text-red-400 hover:bg-red-500/20 cursor-pointer"
+                        : "bg-white/5 border-white/10 text-blue-300/40"
+                }`} title={fhevmStatus === "error" ? `${decryptError || "Error"} — click to retry` : `FHE: ${fhevmStatus}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${
+                  fhevmStatus === "ready" ? "bg-green-400"
+                  : fhevmStatus === "loading" ? "bg-amber-400 animate-pulse"
+                  : fhevmStatus === "error" ? "bg-red-400"
+                  : "bg-blue-300/30"
+                }`} />
+                FHE {fhevmStatus === "error" ? "error ↻" : fhevmStatus}
+              </button>
             )}
             <SettingsPanel />
             <WalletButton />

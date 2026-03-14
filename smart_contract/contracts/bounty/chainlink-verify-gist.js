@@ -29,14 +29,18 @@ if (!/^[a-f0-9]{20,40}$/i.test(gistId)) {
 }
 
 // Fetch the gist
+const headers = {
+  "User-Agent": "GhostBounty-Chainlink",
+  Accept: "application/vnd.github.v3+json",
+};
+if (secrets && secrets.GITHUB_TOKEN) {
+  headers.Authorization = `Bearer ${secrets.GITHUB_TOKEN}`;
+}
+
 const resp = await Functions.makeHttpRequest({
   url: `https://api.github.com/gists/${gistId}`,
   method: "GET",
-  headers: {
-    Authorization: `Bearer ${secrets.GITHUB_TOKEN}`,
-    "User-Agent": "GhostBounty-Chainlink",
-    Accept: "application/vnd.github.v3+json",
-  },
+  headers,
 });
 
 if (resp.error) {

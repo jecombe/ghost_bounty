@@ -1,7 +1,7 @@
 "use client";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { WagmiProvider } from "wagmi";
+import { WagmiProvider, type State } from "wagmi";
 import { RainbowKitProvider, darkTheme } from "@rainbow-me/rainbowkit";
 import "@rainbow-me/rainbowkit/styles.css";
 import { SessionProvider } from "next-auth/react";
@@ -11,12 +11,14 @@ import { AmbienceProvider } from "./AmbienceContext";
 import { OceanAmbience } from "./OceanAmbience";
 import { FheBalancesProvider } from "@/hooks/useFheBalances";
 
-export function Providers({ children }: { children: React.ReactNode }) {
-  const [queryClient] = useState(() => new QueryClient());
+export function Providers({ children, initialState }: { children: React.ReactNode; initialState?: State }) {
+  const [queryClient] = useState(() => new QueryClient({
+    defaultOptions: { queries: { staleTime: 5_000, refetchOnWindowFocus: false } },
+  }));
 
   return (
     <SessionProvider>
-      <WagmiProvider config={config}>
+      <WagmiProvider config={config} initialState={initialState}>
         <QueryClientProvider client={queryClient}>
           <RainbowKitProvider
             theme={darkTheme({

@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt, usePublicClient } from "wagmi";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useSearchParams } from "next/navigation";
+import { useAccount, useReadContract, useWriteContract, usePublicClient } from "wagmi";
 import { parseUnits } from "viem";
 import { useSession, signIn, signOut } from "next-auth/react";
 import {
@@ -14,6 +15,7 @@ import {
 } from "@/lib/contracts";
 import { useFhevm } from "@/hooks/useFhevm";
 import { toHexString } from "@/lib/fhe/sdk";
+import { TransactionModal, type TxStep } from "@/components/TransactionModal";
 
 type Tab = "create" | "browse" | "claim";
 
@@ -23,16 +25,16 @@ interface BountyInfo {
   repoOwner: string;
   repoName: string;
   issueNumber: number;
-  status: number; // 0=Active, 1=Pending, 2=Claimed, 3=Cancelled
+  status: number; // 0=Active, 1=Pending, 2=Verified, 3=Claimed, 4=Cancelled
   claimedBy: string;
   createdAt: number;
 }
 
-const STATUS_LABELS = ["Active", "Verifying...", "Claimed", "Cancelled"];
-const STATUS_COLORS = ["text-green-400", "text-amber-400", "text-cyan-400", "text-red-400"];
+const STATUS_LABELS = ["Active", "Verifying...", "Verified", "Claimed", "Cancelled"];
+const STATUS_COLORS = ["text-green-400", "text-amber-400", "text-purple-400", "text-cyan-400", "text-red-400"];
 
 export default function BountyPage() {
-  const { address, isConnected } = useAccount();
+  const { address, isConnected, chainId } = useAccount();
   const publicClient = usePublicClient();
   const { instance, status: fheStatus } = useFhevm();
   const fheLoading = fheStatus !== "ready";
@@ -44,24 +46,52 @@ export default function BountyPage() {
   const githubAvatar = session?.user?.image;
   const githubName = session?.user?.name;
 
+  // Read query params for pre-filled bounty creation (from GitHub bot link)
+  const searchParams = useSearchParams();
+
   const [tab, setTab] = useState<Tab>("browse");
 
   // --- Register ---
   const [gistId, setGistId] = useState("");
   const [registerPending, setRegisterPending] = useState(false);
+  const [waitingChainlink, setWaitingChainlink] = useState(false);
+  const [verificationSuccess, setVerificationSuccess] = useState(false);
+  const [verificationFailed, setVerificationFailed] = useState(false);
+  const sawPendingTrueRef = useRef(false); // track that we saw verificationPending=true at least once
 
   // --- Create Bounty ---
   const [repoOwner, setRepoOwner] = useState("");
   const [repoName, setRepoName] = useState("");
   const [issueNumber, setIssueNumber] = useState("");
   const [bountyAmount, setBountyAmount] = useState("");
-  const [createStep, setCreateStep] = useState<"idle" | "approve" | "shield" | "operator" | "create" | "done">("idle");
-  const [createTxHash, setCreateTxHash] = useState<`0x${string}` | undefined>();
+
+  // Pre-fill from query params (?tab=create&owner=x&repo=y&issue=1&amount=100)
+  useEffect(() => {
+    const qTab = searchParams.get("tab");
+    const qOwner = searchParams.get("owner");
+    const qRepo = searchParams.get("repo");
+    const qIssue = searchParams.get("issue");
+    const qAmount = searchParams.get("amount");
+    if (qTab === "create") setTab("create");
+    if (qOwner) setRepoOwner(qOwner);
+    if (qRepo) setRepoName(qRepo);
+    if (qIssue) setIssueNumber(qIssue);
+    if (qAmount) setBountyAmount(qAmount);
+  }, [searchParams]);
+  const [createStep, setCreateStep] = useState<"idle" | "running" | "done">("idle");
+  // Transaction modal state
+  const [txModalOpen, setTxModalOpen] = useState(false);
+  const [txModalTitle, setTxModalTitle] = useState("");
+  const [txModalIcon, setTxModalIcon] = useState("");
+  const [txSteps, setTxSteps] = useState<TxStep[]>([]);
 
   // --- Claim ---
   const [claimBountyId, setClaimBountyId] = useState("");
   const [claimPrNumber, setClaimPrNumber] = useState("");
   const [claimPending, setClaimPending] = useState(false);
+  const [waitingClaimVerification, setWaitingClaimVerification] = useState(false);
+  const [claimResult, setClaimResult] = useState<{ success: boolean; message: string } | null>(null);
+  const claimBountyIdRef = useRef<string>("");
 
   // --- Browse ---
   const [bounties, setBounties] = useState<BountyInfo[]>([]);
@@ -79,23 +109,145 @@ export default function BountyPage() {
     abi: GHOST_BOUNTY_ABI,
     functionName: "devGithub",
     args: address ? [address] : undefined,
+    query: { enabled: !!address },
   });
 
-  const { data: verificationPending } = useReadContract({
+  const { data: verificationPending, refetch: refetchPending } = useReadContract({
     address: GHOST_BOUNTY_ADDRESS,
     abi: GHOST_BOUNTY_ABI,
     functionName: "devVerificationPending",
     args: address ? [address] : undefined,
+    query: { enabled: !!address },
   });
 
   const isRegisteredOnChain = typeof userGithubOnChain === "string" && userGithubOnChain.length > 0;
 
-  // Wait for create tx
-  const { isSuccess: createConfirmed } = useWaitForTransactionReceipt({ hash: createTxHash });
-
+  // Poll for verification status while pending (Chainlink takes 1-2 min)
   useEffect(() => {
-    if (createConfirmed && createStep === "create") setCreateStep("done");
-  }, [createConfirmed, createStep]);
+    if (!verificationPending && !waitingChainlink) return;
+    console.log("[GhostBounty] Polling started — verificationPending:", verificationPending, "waitingChainlink:", waitingChainlink);
+    const interval = setInterval(async () => {
+      const [ghResult, pendingResult] = await Promise.all([refetchGithub(), refetchPending()]);
+      console.log("[GhostBounty] Poll result — devGithub:", JSON.stringify(ghResult.data), "verificationPending:", JSON.stringify(pendingResult.data));
+    }, 8_000); // every 8s
+    return () => clearInterval(interval);
+  }, [verificationPending, waitingChainlink, refetchGithub, refetchPending]);
+
+  // Track when we see verificationPending=true on-chain (proves tx was mined)
+  useEffect(() => {
+    if (waitingChainlink && verificationPending === true) {
+      console.log("[GhostBounty] On-chain verificationPending=true confirmed");
+      sawPendingTrueRef.current = true;
+    }
+  }, [waitingChainlink, verificationPending]);
+
+  // Reset sawPendingTrue when we start a new registration
+  useEffect(() => {
+    if (waitingChainlink) {
+      sawPendingTrueRef.current = false;
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [waitingChainlink === true]); // only on transition to true
+
+  // Detect verification success or failure
+  useEffect(() => {
+    if (waitingChainlink) {
+      if (isRegisteredOnChain) {
+        console.log("[GhostBounty] ✓ Verification SUCCESS — devGithub:", userGithubOnChain);
+        setWaitingChainlink(false);
+        setVerificationSuccess(true);
+        setVerificationFailed(false);
+        setTimeout(() => setVerificationSuccess(false), 10_000);
+      } else if (sawPendingTrueRef.current && verificationPending === false && !isRegisteredOnChain) {
+        // Only declare failure AFTER we saw pending=true then it went back to false
+        console.warn("[GhostBounty] ✗ Verification FAILED — Chainlink responded but devGithub is empty. Check gist content/visibility.");
+        setWaitingChainlink(false);
+        setVerificationFailed(true);
+      }
+    }
+  }, [isRegisteredOnChain, waitingChainlink, verificationPending, userGithubOnChain]);
+
+  // Poll bounty status after claim tx (Chainlink takes 1-2 min)
+  // Flow: Pending(1) → Verified(2) → executeClaim tx → Claimed(3)
+  const [executingClaim, setExecutingClaim] = useState(false);
+  useEffect(() => {
+    if (!waitingClaimVerification || !publicClient || !claimBountyIdRef.current) return;
+    const bountyId = BigInt(claimBountyIdRef.current);
+    console.log("[GhostBounty] Claim polling started for bountyId:", claimBountyIdRef.current);
+
+    const poll = async () => {
+      try {
+        const result = await publicClient.readContract({
+          address: GHOST_BOUNTY_ADDRESS,
+          abi: GHOST_BOUNTY_ABI,
+          functionName: "getBounty",
+          args: [bountyId],
+        });
+        const [, , , , status] = result as unknown as [string, string, string, bigint, number, string, bigint];
+        console.log("[GhostBounty] Claim poll — bounty status:", status, "(0=Active, 1=Pending, 2=Verified, 3=Claimed, 4=Cancelled)");
+
+        if (status === 2 && !executingClaim) {
+          // Verified — Chainlink confirmed, now execute FHE payment
+          console.log("[GhostBounty] ✓ PR Verified! Executing FHE payment...");
+          setExecutingClaim(true);
+          try {
+            const txHash = await writeContractAsync({
+              chainId,
+              address: GHOST_BOUNTY_ADDRESS,
+              abi: GHOST_BOUNTY_ABI,
+              functionName: "executeClaim",
+              args: [bountyId],
+            });
+            console.log("[GhostBounty] executeClaim tx sent:", txHash);
+            // Keep polling — will detect status 3 (Claimed) next
+          } catch (e: any) {
+            console.error("[GhostBounty] executeClaim failed:", e);
+            setWaitingClaimVerification(false);
+            setExecutingClaim(false);
+            console.error("[GhostBounty] executeClaim auto error:", e?.message);
+            setClaimResult({ success: false, message: "PR verified but payment execution failed. Try clicking 'Execute Payment' in the browse tab." });
+          }
+        } else if (status === 3) {
+          // Claimed — success!
+          console.log("[GhostBounty] ✓ Claim SUCCESS — bounty paid!");
+          setWaitingClaimVerification(false);
+          setExecutingClaim(false);
+          setClaimResult({ success: true, message: "Bounty claimed successfully! cUSDC has been transferred to your wallet." });
+        } else if (status === 0) {
+          // Back to Active — Chainlink verification failed
+          console.warn("[GhostBounty] ✗ Claim FAILED — bounty reverted to Active. PR may not be merged or doesn't reference the issue.");
+          setWaitingClaimVerification(false);
+          setExecutingClaim(false);
+          setClaimResult({ success: false, message: "Verification failed. Make sure your PR is merged and references the issue (e.g., \"Fixes #42\" in the PR body)." });
+        }
+        // status === 1 (Pending) → still waiting for Chainlink, keep polling
+      } catch (e) {
+        console.error("[GhostBounty] Claim poll error:", e);
+      }
+    };
+
+    poll(); // check immediately
+    const interval = setInterval(poll, 8_000);
+    return () => clearInterval(interval);
+  }, [waitingClaimVerification, publicClient, executingClaim, writeContractAsync, chainId]);
+
+  // Helper: update a specific step in the tx modal
+  const updateStep = useCallback((stepId: string, update: Partial<TxStep>) => {
+    setTxSteps((prev) => prev.map((s) => s.id === stepId ? { ...s, ...update } : s));
+  }, []);
+
+  // Helper: send tx, wait for receipt, update modal steps
+  const sendAndWait = useCallback(async (
+    stepId: string,
+    txCall: () => Promise<`0x${string}`>,
+  ) => {
+    if (!publicClient) throw new Error("No public client");
+    updateStep(stepId, { status: "signing" });
+    const hash = await txCall();
+    updateStep(stepId, { status: "confirming", txHash: hash });
+    await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
+    updateStep(stepId, { status: "done" });
+  }, [publicClient, updateStep]);
 
   // Load bounties
   const loadBounties = useCallback(async () => {
@@ -112,7 +264,7 @@ export default function BountyPage() {
             functionName: "getBounty",
             args: [BigInt(i)],
           });
-          const [creator, rOwner, rName, iNum, status, claimedBy, createdAt] = result as [string, string, string, bigint, number, string, bigint];
+          const [creator, rOwner, rName, iNum, status, claimedBy, createdAt] = result as unknown as [string, string, string, bigint, number, string, bigint];
           loaded.push({ id: i, creator, repoOwner: rOwner, repoName: rName, issueNumber: Number(iNum), status, claimedBy, createdAt: Number(createdAt) });
         } catch { /* skip */ }
       }
@@ -127,74 +279,176 @@ export default function BountyPage() {
   // --- Handlers ---
 
   const handleRegisterOnChain = async () => {
-    if (!githubUser || !gistId.trim()) return;
+    if (!githubUser || !gistId.trim() || !publicClient) return;
+    let cleanGistId = gistId.trim();
+    if (cleanGistId.startsWith("gist:")) cleanGistId = cleanGistId.slice(5);
+    const urlMatch = cleanGistId.match(/gist\.github\.com\/[^/]+\/([a-f0-9]+)/i);
+    if (urlMatch) cleanGistId = urlMatch[1];
+
+    const steps: TxStep[] = [
+      { id: "register", label: "Register Developer", description: `Verify @${githubUser} via Chainlink Functions`, status: "pending" },
+    ];
+    setTxSteps(steps);
+    setTxModalTitle("Verify Identity");
+    setTxModalIcon("\u{1F50D}");
+    setTxModalOpen(true);
     setRegisterPending(true);
+
     try {
-      await writeContractAsync({
-        address: GHOST_BOUNTY_ADDRESS,
-        abi: GHOST_BOUNTY_ABI,
-        functionName: "registerDev",
-        args: [githubUser, gistId.trim()],
-      });
-      alert("Verification request sent! Chainlink is verifying your gist. This may take 1-2 minutes.");
-      refetchGithub();
+      await sendAndWait("register", () =>
+        writeContractAsync({
+          chainId,
+          gas: 5_000_000n,
+          address: GHOST_BOUNTY_ADDRESS,
+          abi: GHOST_BOUNTY_ABI,
+          functionName: "registerDev",
+          args: [githubUser, cleanGistId],
+        })
+      );
+      setWaitingChainlink(true);
+      setRegisterPending(false);
     } catch (e: any) {
-      console.error("Register failed:", e);
-      alert(e?.shortMessage || e?.message || "Registration failed");
-    } finally {
+      console.error("[GhostBounty] Register failed:", e);
+      setTxSteps((prev) => prev.map((s) => s.status !== "done" ? { ...s, status: "error" as const, error: e?.shortMessage || e?.message || "Transaction rejected" } : s));
       setRegisterPending(false);
     }
   };
 
   const handleCreateBounty = async () => {
-    if (!address || !instance || !repoOwner || !repoName || !issueNumber || !bountyAmount) return;
+    if (!address || !instance || !repoOwner || !repoName || !issueNumber || !bountyAmount || !publicClient) return;
     const amountRaw = parseUnits(bountyAmount, 6);
     const amount64 = Number(amountRaw);
+
+    const steps: TxStep[] = [
+      { id: "approve", label: "Approve USDC", description: `Allow cUSDC contract to spend ${bountyAmount} USDC`, status: "pending" },
+      { id: "shield", label: "Shield USDC", description: "Convert plain USDC into encrypted cUSDC", status: "pending" },
+      { id: "operator", label: "Set Operator", description: "Authorize GhostBounty to handle your cUSDC", status: "pending" },
+      { id: "encrypt", label: "Encrypt Amount", description: "FHE-encrypt the bounty amount client-side", status: "pending" },
+      { id: "create", label: "Create Bounty", description: `Post bounty on ${repoOwner}/${repoName}#${issueNumber}`, status: "pending" },
+    ];
+
+    setTxSteps(steps);
+    setTxModalTitle("Create Bounty");
+    setTxModalIcon("\u{1F3AF}");
+    setTxModalOpen(true);
+    setCreateStep("running");
+
     try {
-      setCreateStep("approve");
-      await writeContractAsync({ address: USDC_ADDRESS, abi: USDC_ABI, functionName: "approve", args: [CONFIDENTIAL_USDC_ADDRESS, amountRaw] });
+      // Step 1: Approve
+      await sendAndWait("approve", () =>
+        writeContractAsync({ chainId, address: USDC_ADDRESS, abi: USDC_ABI, functionName: "approve", args: [CONFIDENTIAL_USDC_ADDRESS, amountRaw] })
+      );
 
-      setCreateStep("shield");
-      await writeContractAsync({ address: CONFIDENTIAL_USDC_ADDRESS, abi: CONFIDENTIAL_USDC_ABI, functionName: "shield", args: [amountRaw] });
+      // Step 2: Shield
+      await sendAndWait("shield", () =>
+        writeContractAsync({ chainId, address: CONFIDENTIAL_USDC_ADDRESS, abi: CONFIDENTIAL_USDC_ABI, functionName: "shield", args: [amountRaw] })
+      );
 
-      setCreateStep("operator");
+      // Step 3: Set operator
       const expiry = BigInt(Math.floor(Date.now() / 1000) + 3600);
-      await writeContractAsync({ address: CONFIDENTIAL_USDC_ADDRESS, abi: CONFIDENTIAL_USDC_ABI, functionName: "setOperator", args: [GHOST_BOUNTY_ADDRESS, expiry] });
+      await sendAndWait("operator", () =>
+        writeContractAsync({ chainId, address: CONFIDENTIAL_USDC_ADDRESS, abi: CONFIDENTIAL_USDC_ABI, functionName: "setOperator", args: [GHOST_BOUNTY_ADDRESS, expiry] })
+      );
 
-      setCreateStep("create");
+      // Step 4: FHE encryption (client-side, no tx)
+      updateStep("encrypt", { status: "confirming" });
       const input = instance.createEncryptedInput(GHOST_BOUNTY_ADDRESS, address);
       input.add64(amount64);
       const encrypted = await input.encrypt();
       const encHandle = toHexString(encrypted.handles[0]);
       const inputProof = toHexString(encrypted.inputProof);
-      const hash = await writeContractAsync({ address: GHOST_BOUNTY_ADDRESS, abi: GHOST_BOUNTY_ABI, functionName: "createBounty", args: [repoOwner.trim(), repoName.trim(), BigInt(issueNumber), encHandle, inputProof] });
-      setCreateTxHash(hash);
+      updateStep("encrypt", { status: "done" });
+
+      // Step 5: Create bounty
+      await sendAndWait("create", () =>
+        writeContractAsync({ chainId, address: GHOST_BOUNTY_ADDRESS, abi: GHOST_BOUNTY_ABI, functionName: "createBounty", args: [repoOwner.trim(), repoName.trim(), BigInt(issueNumber), encHandle, inputProof] })
+      );
+
+      setCreateStep("done");
+      loadBounties();
     } catch (e: any) {
       console.error("Create bounty failed:", e);
-      alert(e?.shortMessage || e?.message || "Failed");
+      // Find the first non-done step and mark it as error
+      setTxSteps((prev) => {
+        const updated = [...prev];
+        const failedIdx = updated.findIndex((s) => s.status !== "done");
+        if (failedIdx !== -1) {
+          const msg = e?.shortMessage || e?.message || "Transaction rejected";
+          updated[failedIdx] = { ...updated[failedIdx], status: "error", error: msg };
+        }
+        return updated;
+      });
       setCreateStep("idle");
     }
   };
 
   const handleClaim = async () => {
-    if (!claimBountyId || !claimPrNumber) return;
+    if (!claimBountyId || !claimPrNumber || !publicClient) return;
     setClaimPending(true);
+    setClaimResult(null);
+
+    const steps: TxStep[] = [
+      { id: "claim", label: "Submit Claim", description: `Claim bounty #${claimBountyId} with PR #${claimPrNumber}`, status: "pending" },
+    ];
+    setTxSteps(steps);
+    setTxModalTitle("Claim Bounty");
+    setTxModalIcon("\u{1F4E8}");
+    setTxModalOpen(true);
+
     try {
-      await writeContractAsync({ address: GHOST_BOUNTY_ADDRESS, abi: GHOST_BOUNTY_ABI, functionName: "claimBounty", args: [BigInt(claimBountyId), BigInt(claimPrNumber)] });
-      alert("Claim request sent! Chainlink Functions will verify your PR. Payment is automatic if verified.");
+      await sendAndWait("claim", () =>
+        writeContractAsync({ chainId, gas: 5_000_000n, address: GHOST_BOUNTY_ADDRESS, abi: GHOST_BOUNTY_ABI, functionName: "claimBounty", args: [BigInt(claimBountyId), BigInt(claimPrNumber)] })
+      );
+      claimBountyIdRef.current = claimBountyId;
+      setWaitingClaimVerification(true);
+      setClaimPending(false);
     } catch (e: any) {
-      console.error("Claim failed:", e);
-      alert(e?.shortMessage || e?.message || "Claim failed");
-    } finally {
+      console.error("[GhostBounty] Claim tx failed:", e);
+      setTxSteps((prev) => prev.map((s) => s.status !== "done" ? { ...s, status: "error" as const, error: e?.shortMessage || e?.message || "Transaction rejected" } : s));
+      setClaimResult({ success: false, message: "Transaction failed. Please check bounty ID and PR number." });
       setClaimPending(false);
     }
   };
 
-  const handleCancel = async (bountyId: number) => {
+  const handleExecuteClaim = async (bountyId: number) => {
+    if (!publicClient) return;
+    const steps: TxStep[] = [
+      { id: "execute", label: "Execute Payment", description: `Transfer encrypted cUSDC for bounty #${bountyId}`, status: "pending" },
+    ];
+    setTxSteps(steps);
+    setTxModalTitle("Execute Payment");
+    setTxModalIcon("\u{1F4B8}");
+    setTxModalOpen(true);
+
     try {
-      await writeContractAsync({ address: GHOST_BOUNTY_ADDRESS, abi: GHOST_BOUNTY_ABI, functionName: "cancelBounty", args: [BigInt(bountyId)] });
+      await sendAndWait("execute", () =>
+        writeContractAsync({ chainId, address: GHOST_BOUNTY_ADDRESS, abi: GHOST_BOUNTY_ABI, functionName: "executeClaim", args: [BigInt(bountyId)] })
+      );
+      loadBounties();
     } catch (e: any) {
-      alert(e?.shortMessage || e?.message || "Cancel failed");
+      console.error("[GhostBounty] executeClaim error:", e);
+      setTxSteps((prev) => prev.map((s) => s.status !== "done" ? { ...s, status: "error" as const, error: e?.shortMessage || e?.message || "Transaction rejected" } : s));
+    }
+  };
+
+  const handleCancel = async (bountyId: number) => {
+    if (!publicClient) return;
+    const steps: TxStep[] = [
+      { id: "cancel", label: "Cancel Bounty", description: `Cancel bounty #${bountyId} and return funds`, status: "pending" },
+    ];
+    setTxSteps(steps);
+    setTxModalTitle("Cancel Bounty");
+    setTxModalIcon("\u{274C}");
+    setTxModalOpen(true);
+
+    try {
+      await sendAndWait("cancel", () =>
+        writeContractAsync({ chainId, address: GHOST_BOUNTY_ADDRESS, abi: GHOST_BOUNTY_ABI, functionName: "cancelBounty", args: [BigInt(bountyId)] })
+      );
+      loadBounties();
+    } catch (e: any) {
+      console.error("[GhostBounty] Cancel error:", e);
+      setTxSteps((prev) => prev.map((s) => s.status !== "done" ? { ...s, status: "error" as const, error: e?.shortMessage || e?.message || "Transaction rejected" } : s));
     }
   };
 
@@ -248,17 +502,48 @@ export default function BountyPage() {
             {isConnected && (
               <div className="border-t border-white/[0.05] pt-3">
                 {isRegisteredOnChain ? (
-                  <div className="flex items-center gap-2 text-xs">
-                    <div className="w-2 h-2 rounded-full bg-green-400" />
-                    <span className="text-green-400">Verified on-chain as @{userGithubOnChain}</span>
+                  <div className="space-y-2">
+                    {verificationSuccess && (
+                      <div className="p-2.5 rounded-xl bg-green-500/10 border border-green-500/20 flex items-center gap-2">
+                        <svg className="w-4 h-4 text-green-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <span className="text-green-400 text-xs font-semibold">Verification successful! Your GitHub identity is now linked on-chain.</span>
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2 text-xs">
+                      <div className="w-2 h-2 rounded-full bg-green-400" />
+                      <span className="text-green-400">Verified on-chain as @{userGithubOnChain}</span>
+                    </div>
                   </div>
-                ) : verificationPending ? (
-                  <div className="flex items-center gap-2 text-xs">
-                    <div className="w-3 h-3 rounded-full border-2 border-amber-400 border-t-transparent animate-spin" />
-                    <span className="text-amber-400">Chainlink is verifying your GitHub identity...</span>
+                ) : verificationPending || waitingChainlink ? (
+                  <div className="space-y-2">
+                    <div className="p-3 rounded-xl bg-amber-500/5 border border-amber-500/15">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-5 h-5 rounded-full border-2 border-amber-400 border-t-transparent animate-spin shrink-0" />
+                        <div>
+                          <p className="text-amber-400 text-xs font-semibold">Chainlink is verifying your GitHub identity...</p>
+                          <p className="text-amber-400/50 text-[10px] mt-0.5">This usually takes 1-2 minutes. The page will update automatically.</p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="w-full bg-amber-500/10 rounded-full h-1 overflow-hidden">
+                      <div className="bg-amber-400/40 h-1 rounded-full animate-pulse" style={{ width: "60%" }} />
+                    </div>
                   </div>
                 ) : (
                   <div className="space-y-3">
+                    {verificationFailed && (
+                      <div className="p-2.5 rounded-xl bg-red-500/10 border border-red-500/20 flex items-start gap-2">
+                        <svg className="w-4 h-4 text-red-400 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                        </svg>
+                        <div>
+                          <p className="text-red-400 text-xs font-semibold">Verification failed</p>
+                          <p className="text-red-400/60 text-[10px] mt-0.5">Chainlink could not verify your gist. Make sure the gist is <strong>public</strong> (not secret), contains your wallet address, and belongs to your GitHub account. Then try again.</p>
+                        </div>
+                      </div>
+                    )}
                     <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.06]">
                       <h3 className="text-xs font-semibold text-blue-300/50 mb-2">Verify your GitHub identity</h3>
                       <ol className="text-xs text-blue-300/30 space-y-1 list-decimal list-inside">
@@ -342,12 +627,17 @@ export default function BountyPage() {
                             Claim this bounty
                           </button>
                         )}
-                        {(b.status === 0 || b.status === 1) && b.creator.toLowerCase() === address?.toLowerCase() && (
+                        {b.status === 0 && b.creator.toLowerCase() === address?.toLowerCase() && (
                           <button onClick={() => handleCancel(b.id)} className="text-xs px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20">
                             Cancel
                           </button>
                         )}
-                        {b.status === 2 && (
+                        {b.status === 2 && b.claimedBy.toLowerCase() === address?.toLowerCase() && (
+                          <button onClick={() => handleExecuteClaim(b.id)} className="text-xs px-3 py-1.5 rounded-lg bg-purple-500/10 text-purple-300 hover:bg-purple-500/20 border border-purple-500/20">
+                            Execute Payment
+                          </button>
+                        )}
+                        {b.status === 3 && (
                           <span className="text-xs text-blue-300/30">Paid to {b.claimedBy.slice(0, 6)}...{b.claimedBy.slice(-4)}</span>
                         )}
                       </div>
@@ -383,25 +673,14 @@ export default function BountyPage() {
                   <input type="number" step="0.01" value={bountyAmount} onChange={(e) => setBountyAmount(e.target.value)} placeholder="100.00" className="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white placeholder:text-blue-300/20 focus:outline-none focus:border-cyan-500/40 font-mono text-sm" />
                 </div>
               </div>
-              {createStep !== "idle" && createStep !== "done" && (
-                <div className="p-3 rounded-xl bg-cyan-500/5 border border-cyan-500/10">
-                  <div className="flex items-center gap-2 text-xs text-cyan-300">
-                    <div className="w-3 h-3 rounded-full border-2 border-cyan-400 border-t-transparent animate-spin" />
-                    {createStep === "approve" && "Approving USDC..."}
-                    {createStep === "shield" && "Shielding USDC → cUSDC..."}
-                    {createStep === "operator" && "Setting operator permission..."}
-                    {createStep === "create" && "Creating bounty with encrypted amount..."}
-                  </div>
-                </div>
-              )}
               {createStep === "done" && (
                 <div className="p-3 rounded-xl bg-green-500/10 border border-green-500/20 text-center">
                   <p className="text-green-400 text-sm font-semibold">Bounty created successfully!</p>
                   <p className="text-xs text-blue-300/30 mt-1">The reward amount is fully encrypted on-chain</p>
                 </div>
               )}
-              <button onClick={handleCreateBounty} disabled={(createStep !== "idle" && createStep !== "done") || fheLoading || !repoOwner || !repoName || !issueNumber || !bountyAmount} className="w-full py-3 rounded-xl font-bold text-sm bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:from-cyan-400 hover:to-blue-500 disabled:opacity-40 transition-all">
-                {createStep === "done" ? "Create Another" : "Create Bounty"}
+              <button onClick={handleCreateBounty} disabled={createStep === "running" || fheLoading || !repoOwner || !repoName || !issueNumber || !bountyAmount} className="w-full py-3 rounded-xl font-bold text-sm bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:from-cyan-400 hover:to-blue-500 disabled:opacity-40 transition-all">
+                {createStep === "done" ? "Create Another" : createStep === "running" ? "Processing..." : "Create Bounty"}
               </button>
             </div>
           )}
@@ -417,9 +696,15 @@ export default function BountyPage() {
                   <p className="text-amber-400 text-xs">Connect your GitHub account first to claim bounties.</p>
                 </div>
               )}
-              {session && !isRegisteredOnChain && (
+              {session && !isRegisteredOnChain && !waitingChainlink && !verificationPending && (
                 <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20">
                   <p className="text-amber-400 text-xs">Verify your GitHub identity on-chain first (see above).</p>
+                </div>
+              )}
+              {session && (waitingChainlink || verificationPending) && (
+                <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full border-2 border-amber-400 border-t-transparent animate-spin shrink-0" />
+                  <p className="text-amber-400 text-xs">Verification in progress... You'll be able to claim once verified.</p>
                 </div>
               )}
 
@@ -434,9 +719,48 @@ export default function BountyPage() {
                 </div>
               </div>
 
-              <button onClick={handleClaim} disabled={claimPending || !claimBountyId || !claimPrNumber || !isRegisteredOnChain} className="w-full py-3 rounded-xl font-bold text-sm bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:from-cyan-400 hover:to-blue-500 disabled:opacity-40 transition-all">
-                {claimPending ? "Sending verification request..." : "Claim Bounty"}
+              <button onClick={handleClaim} disabled={claimPending || waitingClaimVerification || !claimBountyId || !claimPrNumber || !isRegisteredOnChain} className="w-full py-3 rounded-xl font-bold text-sm bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:from-cyan-400 hover:to-blue-500 disabled:opacity-40 transition-all">
+                {claimPending ? "Sending..." : waitingClaimVerification ? "Chainlink verifying PR..." : "Claim Bounty"}
               </button>
+
+              {waitingClaimVerification && (
+                <div className="p-3 rounded-xl bg-amber-500/5 border border-amber-500/15">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-5 h-5 rounded-full border-2 border-amber-400 border-t-transparent animate-spin shrink-0" />
+                    <div>
+                      <p className="text-amber-400 text-xs font-semibold">
+                        {executingClaim ? "PR verified! Executing encrypted payment..." : "Chainlink is verifying your PR..."}
+                      </p>
+                      <p className="text-amber-400/50 text-[10px] mt-0.5">
+                        {executingClaim ? "Sending FHE-encrypted payment to your wallet." : "Checking if PR is merged and references the issue. This takes 1-2 minutes."}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-2 w-full bg-amber-500/10 rounded-full h-1 overflow-hidden">
+                    <div className="bg-amber-400/40 h-1 rounded-full animate-pulse" style={{ width: executingClaim ? "85%" : "60%" }} />
+                  </div>
+                </div>
+              )}
+
+              {claimResult && (
+                <div className={`p-2.5 rounded-xl flex items-start gap-2 ${claimResult.success ? "bg-green-500/10 border border-green-500/20" : "bg-red-500/10 border border-red-500/20"}`}>
+                  <svg className={`w-4 h-4 shrink-0 mt-0.5 ${claimResult.success ? "text-green-400" : "text-red-400"}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    {claimResult.success ? (
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    ) : (
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                    )}
+                  </svg>
+                  <div>
+                    <p className={`text-xs font-semibold ${claimResult.success ? "text-green-400" : "text-red-400"}`}>
+                      {claimResult.success ? "Claim successful!" : "Claim failed"}
+                    </p>
+                    <p className={`text-[10px] mt-0.5 ${claimResult.success ? "text-green-400/60" : "text-red-400/60"}`}>
+                      {claimResult.message}
+                    </p>
+                  </div>
+                </div>
+              )}
 
               <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.04]">
                 <h3 className="text-xs font-semibold text-blue-300/50 mb-2">How it works</h3>
@@ -452,6 +776,21 @@ export default function BountyPage() {
           )}
         </div>
       )}
+      {/* Transaction Modal */}
+      <TransactionModal
+        open={txModalOpen}
+        onClose={() => {
+          setTxModalOpen(false);
+          if (createStep === "done") {
+            // Reset for next bounty creation
+            setCreateStep("idle");
+          }
+        }}
+        title={txModalTitle}
+        steps={txSteps}
+        icon={txModalIcon}
+        chainId={chainId}
+      />
     </div>
   );
 }

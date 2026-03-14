@@ -96,12 +96,18 @@ export async function loadRelayerSDK(): Promise<void> {
 }
 
 export async function initFhevm(forceReinit = false): Promise<void> {
+  console.log("[FHE sdk] loadRelayerSDK...");
   await loadRelayerSDK();
+  console.log("[FHE sdk] CDN loaded, relayerSDK exists:", !!window.relayerSDK);
 
-  if (window.relayerSDK.__initialized__ && !forceReinit) return;
+  if (window.relayerSDK.__initialized__ && !forceReinit) {
+    console.log("[FHE sdk] Already initialized, skipping");
+    return;
+  }
 
-  // Always re-run initSDK when forced — the SDK may hold stale internal state
+  console.log("[FHE sdk] Calling initSDK()...");
   const ok = await window.relayerSDK.initSDK();
+  console.log("[FHE sdk] initSDK() returned:", ok);
   if (!ok) throw new Error("relayerSDK.initSDK() failed");
   window.relayerSDK.__initialized__ = true;
 }
@@ -163,7 +169,10 @@ export async function createFhevmInstance(provider: any, forceReinit = false): P
     relayerRouteVersion: 2,
   };
 
-  return window.relayerSDK.createInstance(config);
+  console.log("[FHE sdk] createInstance()...", { relayerUrl: config.relayerUrl });
+  const inst = await window.relayerSDK.createInstance(config);
+  console.log("[FHE sdk] createInstance() done");
+  return inst;
 }
 
 // Convert Uint8Array to 0x hex string
