@@ -94,6 +94,7 @@ contract GhostBounty is FunctionsClient, ReentrancyGuard, Pausable, Ownable2Step
         BountyStatus status;
         address claimedBy;
         uint256 createdAt;
+        uint256 pendingSince;
     }
 
     uint256 public bountyCount;
@@ -412,7 +413,8 @@ contract GhostBounty is FunctionsClient, ReentrancyGuard, Pausable, Ownable2Step
             encryptedAmount: amount,
             status: BountyStatus.Active,
             claimedBy: address(0),
-            createdAt: block.timestamp
+            createdAt: block.timestamp,
+            pendingSince: 0
         });
         FHE.allowThis(amount);
         FHE.allow(amount, msg.sender); // Creator can view their own bounty amount
@@ -455,7 +457,8 @@ contract GhostBounty is FunctionsClient, ReentrancyGuard, Pausable, Ownable2Step
             bounty.status == BountyStatus.Pending || bounty.status == BountyStatus.Verified,
             "Not stuck"
         );
-        require(block.timestamp >= bounty.createdAt + PENDING_TIMEOUT, "Timeout not reached");
+        require(bounty.pendingSince > 0, "Never entered pending");
+        require(block.timestamp >= bounty.pendingSince + PENDING_TIMEOUT, "Timeout not reached");
 
         bounty.status = BountyStatus.Cancelled;
         bounty.claimedBy = address(0);
@@ -494,15 +497,17 @@ contract GhostBounty is FunctionsClient, ReentrancyGuard, Pausable, Ownable2Step
 
         // Move to Pending — prevents concurrent claims
         bounty.status = BountyStatus.Pending;
+        bounty.pendingSince = block.timestamp;
 
         FunctionsRequest.Request memory req;
         req.initializeRequestForInlineJavaScript(claimVerificationSource);
 
-        string[] memory args = new string[](4);
+        string[] memory args = new string[](5);
         args[0] = bounty.repoOwner;
         args[1] = bounty.repoName;
         args[2] = _uint64ToString(prNumber);
         args[3] = _uint64ToString(bounty.issueNumber);
+        args[4] = devGithub[msg.sender]; // claimer's registered GitHub username
         req.setArgs(args);
 
         if (secretsVersion > 0) {
@@ -604,6 +609,7 @@ contract GhostBounty is FunctionsClient, ReentrancyGuard, Pausable, Ownable2Step
         // Handle Chainlink errors — revert to Active so someone else can try
         if (err.length > 0 || response.length == 0) {
             bounty.status = BountyStatus.Active;
+            bounty.pendingSince = 0;
             emit ClaimFailed(claim.bountyId, requestId, "Verification failed");
             return;
         }
@@ -615,7 +621,16 @@ contract GhostBounty is FunctionsClient, ReentrancyGuard, Pausable, Ownable2Step
         address developer = devRegistry[prAuthor];
         if (developer == address(0)) {
             bounty.status = BountyStatus.Active;
+            bounty.pendingSince = 0;
             emit ClaimFailed(claim.bountyId, requestId, "Dev not registered");
+            return;
+        }
+
+        // Verify that the claimer is the actual PR author
+        if (developer != claim.claimer) {
+            bounty.status = BountyStatus.Active;
+            bounty.pendingSince = 0;
+            emit ClaimFailed(claim.bountyId, requestId, "Claimer is not PR author");
             return;
         }
 
@@ -690,10 +705,11 @@ contract GhostBounty is FunctionsClient, ReentrancyGuard, Pausable, Ownable2Step
         uint64 issueNumber,
         BountyStatus status,
         address claimedBy,
-        uint256 createdAt
+        uint256 createdAt,
+        uint256 pendingSince
     ) {
         Bounty storage b = _bounties[bountyId];
-        return (b.creator, b.repoOwner, b.repoName, b.issueNumber, b.status, b.claimedBy, b.createdAt);
+        return (b.creator, b.repoOwner, b.repoName, b.issueNumber, b.status, b.claimedBy, b.createdAt, b.pendingSince);
     }
 
     /// @notice Get encrypted bounty amount (only creator or claimed developer)

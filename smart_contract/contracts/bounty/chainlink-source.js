@@ -10,6 +10,7 @@
 //   args[1] = repoName   (e.g., "go-ethereum")
 //   args[2] = prNumber   (e.g., "123")
 //   args[3] = issueNumber (e.g., "42")
+//   args[4] = claimerGithub (claimer's registered GitHub username, lowercase)
 //
 // Secrets (DON-hosted):
 //   secrets.GITHUB_TOKEN = GitHub Personal Access Token
@@ -20,8 +21,9 @@ const repoOwner = args[0];
 const repoName = args[1];
 const prNumber = args[2];
 const issueNumber = args[3];
+const claimerGithub = args[4];
 
-if (!repoOwner || !repoName || !prNumber || !issueNumber) {
+if (!repoOwner || !repoName || !prNumber || !issueNumber || !claimerGithub) {
   throw Error("Missing arguments");
 }
 
@@ -82,6 +84,11 @@ if (!titleMatch && !bodyMatch && !branchMatch) {
   throw Error("PR does not reference the target issue");
 }
 
-// 4. Return the PR author's GitHub username (lowercase for case-insensitive matching)
+// 4. Verify the claimer is the PR author
 const author = pr.user.login.toLowerCase();
+if (author !== claimerGithub) {
+  throw Error("Claimer " + claimerGithub + " is not PR author " + author);
+}
+
+// 5. Return the PR author's GitHub username (lowercase for case-insensitive matching)
 return Functions.encodeString(author);

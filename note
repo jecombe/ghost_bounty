@@ -75,3 +75,47 @@
   utile immédiatement
   2. GitHub App + bot commentaire — le vrai game changer
   3. Auto-claim sur merge — supprime la friction pour les devs
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  --------------------------------------------------------------
+
+
+
+
+  security 2. HIGH : Pas de vérification que le claimer est l'auteur du
+   PR avant l'appel Chainlink
+
+  Fichier : GhostBounty.sol:480-522
+
+  Actuellement, claimBounty() ne vérifie pas que le
+  devGithub[msg.sender] correspond au PR author. L'appel
+  Chainlink coûte du LINK. Un attaquant enregistré peut
+  spammer des claims invalides (avec des PR numbers random) et
+   drainer le LINK de ta subscription, même avec les cooldowns
+   (1 claim / 2 min / adresse = 720 LINK/jour si le LINK coûte
+   peu par appel, et l'attaquant peut utiliser plusieurs
+  adresses).
+
+  Fix recommandé : ajouter le username du claimer comme
+  argument Chainlink et le vérifier dans le JS source :
+  args[4] = devGithub[msg.sender]; // pass claimer's github
+  username
+  Et dans chainlink-source.js :
+  const claimerGithub = args[4];
+  if (author !== claimerGithub) {
+      throw Error("Claimer is not PR author");
+  }
+ 
