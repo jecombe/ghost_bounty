@@ -36,6 +36,9 @@ contract GhostBounty is FunctionsClient, ReentrancyGuard, Pausable, Ownable2Step
     uint256 public constant SOURCE_TIMELOCK = 48 hours;
     uint256 public constant ADMIN_TIMELOCK = 24 hours;
     uint256 public constant MAX_FEE_BPS = 500; // 5%
+    uint256 public constant REGISTRATION_COOLDOWN = 7 days;
+    uint256 public constant PENDING_TIMEOUT = 7 days;
+    uint256 public constant BOUNTY_CLAIM_COOLDOWN = 10 minutes;
 
     // ========================
     // Config
@@ -109,12 +112,19 @@ contract GhostBounty is FunctionsClient, ReentrancyGuard, Pausable, Ownable2Step
     mapping(address => string) public devGithub;
     /// @dev Track pending verifications
     mapping(address => bool) public devVerificationPending;
+    /// @dev Track last registration time per address (cooldown for re-registration)
+    mapping(address => uint256) public devRegisteredAt;
+    /// @dev Track last claim timestamp per address (rate-limit LINK drain)
+    mapping(address => uint256) public lastClaimAttempt;
+    uint256 public constant CLAIM_COOLDOWN = 2 minutes;
+    /// @dev Track last claim attempt per bounty (prevent spam on same bounty)
+    mapping(uint256 => uint256) public lastBountyClaimAttempt;
 
     // ========================
     // Chainlink Request Tracking
     // ========================
 
-    enum RequestType { BountyClaim, DevRegistration }
+    enum RequestType { None, BountyClaim, DevRegistration }
 
     struct PendingClaim {
         uint256 bountyId;
@@ -190,9 +200,17 @@ contract GhostBounty is FunctionsClient, ReentrancyGuard, Pausable, Ownable2Step
     // Admin: Chainlink Config
     // ========================
 
-    function setDonId(bytes32 _donId) external onlyOwner { donId = _donId; }
-    function setSubscriptionId(uint64 _subId) external onlyOwner { subscriptionId = _subId; }
-    function setCallbackGasLimit(uint32 _limit) external onlyOwner { callbackGasLimit = _limit; }
+    event DonIdUpdated(bytes32 newDonId);
+    event SubscriptionIdUpdated(uint64 newSubId);
+    event CallbackGasLimitUpdated(uint32 newLimit);
+
+    function setDonId(bytes32 _donId) external onlyOwner { donId = _donId; emit DonIdUpdated(_donId); }
+    function setSubscriptionId(uint64 _subId) external onlyOwner { subscriptionId = _subId; emit SubscriptionIdUpdated(_subId); }
+    function setCallbackGasLimit(uint32 _limit) external onlyOwner {
+        require(_limit >= 100_000 && _limit <= 500_000, "Gas limit out of range");
+        callbackGasLimit = _limit;
+        emit CallbackGasLimitUpdated(_limit);
+    }
 
     function setSecretsConfig(uint8 _slotId, uint64 _version, uint256 _expiration) external onlyOwner {
         secretsSlotId = _slotId;
@@ -316,6 +334,11 @@ contract GhostBounty is FunctionsClient, ReentrancyGuard, Pausable, Ownable2Step
         require(bytes(normalized).length > 0 && bytes(normalized).length <= MAX_USERNAME_LENGTH, "Invalid username");
         require(bytes(gistId).length > 0 && bytes(gistId).length <= 40, "Invalid gist ID");
         require(!devVerificationPending[msg.sender], "Verification already pending");
+        require(
+            devRegisteredAt[msg.sender] == 0 ||
+            block.timestamp >= devRegisteredAt[msg.sender] + REGISTRATION_COOLDOWN,
+            "Registration cooldown active"
+        );
         require(bytes(gistVerificationSource).length > 0, "Gist source not set");
         require(secretsExpiration == 0 || block.timestamp < secretsExpiration, "Secrets expired");
 
@@ -362,8 +385,12 @@ contract GhostBounty is FunctionsClient, ReentrancyGuard, Pausable, Ownable2Step
         require(_isValidRepoString(repoName), "Bad chars in repoName");
         require(issueNumber > 0, "Invalid issue");
 
+        // Normalize to lowercase (GitHub repos are case-insensitive)
+        string memory normalizedOwner = _toLower(repoOwner);
+        string memory normalizedName = _toLower(repoName);
+
         // Prevent duplicate bounties per issue
-        bytes32 issueKey = keccak256(abi.encodePacked(repoOwner, "/", repoName, "#", _uint64ToString(issueNumber)));
+        bytes32 issueKey = keccak256(abi.encodePacked(normalizedOwner, "/", normalizedName, "#", _uint64ToString(issueNumber)));
         require(issueBountyId[issueKey] == 0, "Bounty exists for this issue");
 
         euint64 amount = FHE.fromExternal(encryptedAmount, inputProof);
@@ -379,8 +406,8 @@ contract GhostBounty is FunctionsClient, ReentrancyGuard, Pausable, Ownable2Step
         bountyId = bountyCount++;
         _bounties[bountyId] = Bounty({
             creator: msg.sender,
-            repoOwner: repoOwner,
-            repoName: repoName,
+            repoOwner: normalizedOwner,
+            repoName: normalizedName,
             issueNumber: issueNumber,
             encryptedAmount: amount,
             status: BountyStatus.Active,
@@ -392,23 +419,46 @@ contract GhostBounty is FunctionsClient, ReentrancyGuard, Pausable, Ownable2Step
 
         issueBountyId[issueKey] = bountyId + 1; // +1 so 0 means "no bounty"
 
-        emit BountyCreated(bountyId, repoOwner, repoName, issueNumber, block.timestamp);
+        emit BountyCreated(bountyId, normalizedOwner, normalizedName, issueNumber, block.timestamp);
     }
 
     // ========================
     // Cancel Bounty
     // ========================
 
-    /// @notice Cancel a bounty and get the escrow back. Works for Active or Pending bounties.
+    /// @notice Cancel a bounty and get the escrow back. Only works for Active bounties.
+    ///         Cannot cancel while Chainlink is verifying a claim (Pending/Verified).
     function cancelBounty(uint256 bountyId) external nonReentrant whenNotPaused {
         Bounty storage bounty = _bounties[bountyId];
         require(bounty.creator == msg.sender, "Not creator");
-        require(
-            bounty.status == BountyStatus.Active || bounty.status == BountyStatus.Pending,
-            "Cannot cancel"
-        );
+        require(bounty.status == BountyStatus.Active, "Cannot cancel");
 
         bounty.status = BountyStatus.Cancelled;
+
+        // Clear duplicate protection
+        bytes32 issueKey = keccak256(abi.encodePacked(bounty.repoOwner, "/", bounty.repoName, "#", _uint64ToString(bounty.issueNumber)));
+        delete issueBountyId[issueKey];
+
+        // Return escrowed cUSDC
+        FHE.allowTransient(bounty.encryptedAmount, address(cToken));
+        cToken.confidentialTransfer(msg.sender, bounty.encryptedAmount);
+
+        emit BountyCancelled(bountyId, block.timestamp);
+    }
+
+    /// @notice Emergency cancel for bounties stuck in Pending/Verified after timeout.
+    ///         Prevents permanent fund lock if Chainlink callback never arrives.
+    function emergencyCancelBounty(uint256 bountyId) external nonReentrant whenNotPaused {
+        Bounty storage bounty = _bounties[bountyId];
+        require(bounty.creator == msg.sender, "Not creator");
+        require(
+            bounty.status == BountyStatus.Pending || bounty.status == BountyStatus.Verified,
+            "Not stuck"
+        );
+        require(block.timestamp >= bounty.createdAt + PENDING_TIMEOUT, "Timeout not reached");
+
+        bounty.status = BountyStatus.Cancelled;
+        bounty.claimedBy = address(0);
 
         // Clear duplicate protection
         bytes32 issueKey = keccak256(abi.encodePacked(bounty.repoOwner, "/", bounty.repoName, "#", _uint64ToString(bounty.issueNumber)));
@@ -433,8 +483,14 @@ contract GhostBounty is FunctionsClient, ReentrancyGuard, Pausable, Ownable2Step
     ) external nonReentrant whenNotPaused returns (bytes32 requestId) {
         Bounty storage bounty = _bounties[bountyId];
         require(bounty.status == BountyStatus.Active, "Not active");
+        require(bytes(devGithub[msg.sender]).length > 0, "Must be registered dev");
+        require(block.timestamp >= lastClaimAttempt[msg.sender] + CLAIM_COOLDOWN, "Claim cooldown");
+        require(block.timestamp >= lastBountyClaimAttempt[bountyId] + BOUNTY_CLAIM_COOLDOWN, "Bounty claim cooldown");
         require(bytes(claimVerificationSource).length > 0, "Source not set");
         require(secretsExpiration == 0 || block.timestamp < secretsExpiration, "Secrets expired");
+
+        lastClaimAttempt[msg.sender] = block.timestamp;
+        lastBountyClaimAttempt[bountyId] = block.timestamp;
 
         // Move to Pending — prevents concurrent claims
         bounty.status = BountyStatus.Pending;
@@ -475,6 +531,7 @@ contract GhostBounty is FunctionsClient, ReentrancyGuard, Pausable, Ownable2Step
         bytes memory err
     ) internal override {
         RequestType reqType = _requestTypes[requestId];
+        require(reqType != RequestType.None, "Unknown request");
         delete _requestTypes[requestId];
 
         if (reqType == RequestType.DevRegistration) {
@@ -521,6 +578,7 @@ contract GhostBounty is FunctionsClient, ReentrancyGuard, Pausable, Ownable2Step
 
         devRegistry[reg.githubUsername] = reg.dev;
         devGithub[reg.dev] = reg.githubUsername;
+        devRegisteredAt[reg.dev] = block.timestamp;
 
         emit DevRegistered(reg.dev, reg.githubUsername);
     }
@@ -588,7 +646,8 @@ contract GhostBounty is FunctionsClient, ReentrancyGuard, Pausable, Ownable2Step
         // Calculate protocol fee
         euint64 payout = amount;
         if (feeBps > 0) {
-            euint64 fee = FHE.div(FHE.mul(amount, uint64(feeBps)), 10000);
+            // Safe order: divide first to avoid uint64 overflow on large amounts
+            euint64 fee = FHE.mul(FHE.div(amount, 10000), uint64(feeBps));
             payout = FHE.sub(amount, fee);
             _accruedFees = FHE.add(_accruedFees, fee);
             FHE.allowThis(_accruedFees);

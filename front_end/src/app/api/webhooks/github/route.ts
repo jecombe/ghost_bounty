@@ -5,6 +5,12 @@ import { verifyWebhookSignature, getInstallationToken, postComment, addLabel } f
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "https://ghostbounty.xyz";
 const GHOST_BOUNTY_ADDRESS = process.env.NEXT_PUBLIC_GHOST_BOUNTY_ADDRESS || "0x0000000000000000000000000000000000000000";
 
+// Validate GitHub identifiers to prevent API path injection
+const SAFE_GITHUB_NAME = /^[a-zA-Z0-9._-]+$/;
+function isValidGitHubName(name: string): boolean {
+  return typeof name === "string" && name.length > 0 && name.length <= 100 && SAFE_GITHUB_NAME.test(name);
+}
+
 export async function POST(req: NextRequest) {
   const body = await req.text();
   const signature = req.headers.get("x-hub-signature-256") || "";
@@ -63,6 +69,8 @@ async function handleIssueComment(payload: any, installationId: number) {
   const repoName = repo.name;
   const issueNumber = issue.number;
 
+  if (!isValidGitHubName(owner) || !isValidGitHubName(repoName) || typeof issueNumber !== "number" || issueNumber <= 0) return;
+
   const token = await getInstallationToken(installationId);
 
   // Add bounty label
@@ -107,6 +115,8 @@ async function handlePullRequest(payload: any, installationId: number) {
   const repoName = repo.name;
   const prNumber = pr.number;
   const prAuthor = pr.user.login;
+
+  if (!isValidGitHubName(owner) || !isValidGitHubName(repoName)) return;
 
   // Extract issue references from PR title + body + branch
   const issueNumbers = extractIssueReferences(pr.title, pr.body, pr.head?.ref, owner, repoName);
@@ -157,7 +167,7 @@ async function handleInstallation(payload: any) {
 
 // ── Helpers ──────────────────────────────────────────────
 
-function extractIssueReferences(title: string, body: string, branch: string, owner: string, repo: string): number[] {
+function extractIssueReferences(title: string, body: string, branch: string, _owner: string, _repo: string): number[] {
   const text = `${title || ""} ${body || ""} ${branch || ""}`;
   const issues = new Set<number>();
 
