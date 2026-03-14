@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams } from "next/navigation";
-import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt, usePublicClient } from "wagmi";
+import { useAccount, useReadContract, useWriteContract, usePublicClient } from "wagmi";
 import { parseUnits } from "viem";
 import { useSession, signIn, signOut } from "next-auth/react";
 import {
@@ -15,6 +15,7 @@ import {
 } from "@/lib/contracts";
 import { useFhevm } from "@/hooks/useFhevm";
 import { toHexString } from "@/lib/fhe/sdk";
+import { TransactionModal, type TxStep } from "@/components/TransactionModal";
 
 type Tab = "create" | "browse" | "claim";
 
@@ -77,8 +78,12 @@ export default function BountyPage() {
     if (qIssue) setIssueNumber(qIssue);
     if (qAmount) setBountyAmount(qAmount);
   }, [searchParams]);
-  const [createStep, setCreateStep] = useState<"idle" | "approve" | "shield" | "operator" | "create" | "done">("idle");
-  const [createTxHash, setCreateTxHash] = useState<`0x${string}` | undefined>();
+  const [createStep, setCreateStep] = useState<"idle" | "running" | "done">("idle");
+  // Transaction modal state
+  const [txModalOpen, setTxModalOpen] = useState(false);
+  const [txModalTitle, setTxModalTitle] = useState("");
+  const [txModalIcon, setTxModalIcon] = useState("");
+  const [txSteps, setTxSteps] = useState<TxStep[]>([]);
 
   // --- Claim ---
   const [claimBountyId, setClaimBountyId] = useState("");
@@ -178,7 +183,7 @@ export default function BountyPage() {
           functionName: "getBounty",
           args: [bountyId],
         });
-        const [, , , , status] = result as [string, string, string, bigint, number, string, bigint];
+        const [, , , , status] = result as unknown as [string, string, string, bigint, number, string, bigint];
         console.log("[GhostBounty] Claim poll — bounty status:", status, "(0=Active, 1=Pending, 2=Verified, 3=Claimed, 4=Cancelled)");
 
         if (status === 2 && !executingClaim) {
@@ -226,12 +231,23 @@ export default function BountyPage() {
     return () => clearInterval(interval);
   }, [waitingClaimVerification, publicClient, executingClaim, writeContractAsync, chainId]);
 
-  // Wait for create tx
-  const { isSuccess: createConfirmed } = useWaitForTransactionReceipt({ hash: createTxHash });
+  // Helper: update a specific step in the tx modal
+  const updateStep = useCallback((stepId: string, update: Partial<TxStep>) => {
+    setTxSteps((prev) => prev.map((s) => s.id === stepId ? { ...s, ...update } : s));
+  }, []);
 
-  useEffect(() => {
-    if (createConfirmed && createStep === "create") setCreateStep("done");
-  }, [createConfirmed, createStep]);
+  // Helper: send tx, wait for receipt, update modal steps
+  const sendAndWait = useCallback(async (
+    stepId: string,
+    txCall: () => Promise<`0x${string}`>,
+  ) => {
+    if (!publicClient) throw new Error("No public client");
+    updateStep(stepId, { status: "signing" });
+    const hash = await txCall();
+    updateStep(stepId, { status: "confirming", txHash: hash });
+    await publicClient.waitForTransactionReceipt({ hash, confirmations: 1 });
+    updateStep(stepId, { status: "done" });
+  }, [publicClient, updateStep]);
 
   // Load bounties
   const loadBounties = useCallback(async () => {
@@ -248,7 +264,7 @@ export default function BountyPage() {
             functionName: "getBounty",
             args: [BigInt(i)],
           });
-          const [creator, rOwner, rName, iNum, status, claimedBy, createdAt] = result as [string, string, string, bigint, number, string, bigint];
+          const [creator, rOwner, rName, iNum, status, claimedBy, createdAt] = result as unknown as [string, string, string, bigint, number, string, bigint];
           loaded.push({ id: i, creator, repoOwner: rOwner, repoName: rName, issueNumber: Number(iNum), status, claimedBy, createdAt: Number(createdAt) });
         } catch { /* skip */ }
       }
@@ -263,104 +279,176 @@ export default function BountyPage() {
   // --- Handlers ---
 
   const handleRegisterOnChain = async () => {
-    if (!githubUser || !gistId.trim()) return;
-    // Strip common prefixes: "gist:" or full URL like "https://gist.github.com/user/abc123"
+    if (!githubUser || !gistId.trim() || !publicClient) return;
     let cleanGistId = gistId.trim();
     if (cleanGistId.startsWith("gist:")) cleanGistId = cleanGistId.slice(5);
     const urlMatch = cleanGistId.match(/gist\.github\.com\/[^/]+\/([a-f0-9]+)/i);
     if (urlMatch) cleanGistId = urlMatch[1];
-    console.log("[GhostBounty] Starting registration for @" + githubUser, "gistId:", cleanGistId);
+
+    const steps: TxStep[] = [
+      { id: "register", label: "Register Developer", description: `Verify @${githubUser} via Chainlink Functions`, status: "pending" },
+    ];
+    setTxSteps(steps);
+    setTxModalTitle("Verify Identity");
+    setTxModalIcon("\u{1F50D}");
+    setTxModalOpen(true);
     setRegisterPending(true);
+
     try {
-      console.log("[GhostBounty] Sending registerDev tx...");
-      const txHash = await writeContractAsync({
-        chainId,
-        gas: 5_000_000n,
-        address: GHOST_BOUNTY_ADDRESS,
-        abi: GHOST_BOUNTY_ABI,
-        functionName: "registerDev",
-        args: [githubUser, cleanGistId],
-      });
-      console.log("[GhostBounty] registerDev tx sent:", txHash);
-      console.log("[GhostBounty] Waiting for Chainlink verification...");
+      await sendAndWait("register", () =>
+        writeContractAsync({
+          chainId,
+          gas: 5_000_000n,
+          address: GHOST_BOUNTY_ADDRESS,
+          abi: GHOST_BOUNTY_ABI,
+          functionName: "registerDev",
+          args: [githubUser, cleanGistId],
+        })
+      );
       setWaitingChainlink(true);
       setRegisterPending(false);
     } catch (e: any) {
       console.error("[GhostBounty] Register failed:", e);
-      console.error("[GhostBounty] Register error details:", e?.message);
-      alert("Registration failed. Please check your gist and try again.");
+      setTxSteps((prev) => prev.map((s) => s.status !== "done" ? { ...s, status: "error" as const, error: e?.shortMessage || e?.message || "Transaction rejected" } : s));
       setRegisterPending(false);
     }
   };
 
   const handleCreateBounty = async () => {
-    if (!address || !instance || !repoOwner || !repoName || !issueNumber || !bountyAmount) return;
+    if (!address || !instance || !repoOwner || !repoName || !issueNumber || !bountyAmount || !publicClient) return;
     const amountRaw = parseUnits(bountyAmount, 6);
     const amount64 = Number(amountRaw);
+
+    const steps: TxStep[] = [
+      { id: "approve", label: "Approve USDC", description: `Allow cUSDC contract to spend ${bountyAmount} USDC`, status: "pending" },
+      { id: "shield", label: "Shield USDC", description: "Convert plain USDC into encrypted cUSDC", status: "pending" },
+      { id: "operator", label: "Set Operator", description: "Authorize GhostBounty to handle your cUSDC", status: "pending" },
+      { id: "encrypt", label: "Encrypt Amount", description: "FHE-encrypt the bounty amount client-side", status: "pending" },
+      { id: "create", label: "Create Bounty", description: `Post bounty on ${repoOwner}/${repoName}#${issueNumber}`, status: "pending" },
+    ];
+
+    setTxSteps(steps);
+    setTxModalTitle("Create Bounty");
+    setTxModalIcon("\u{1F3AF}");
+    setTxModalOpen(true);
+    setCreateStep("running");
+
     try {
-      setCreateStep("approve");
-      await writeContractAsync({ chainId, address: USDC_ADDRESS, abi: USDC_ABI, functionName: "approve", args: [CONFIDENTIAL_USDC_ADDRESS, amountRaw] });
+      // Step 1: Approve
+      await sendAndWait("approve", () =>
+        writeContractAsync({ chainId, address: USDC_ADDRESS, abi: USDC_ABI, functionName: "approve", args: [CONFIDENTIAL_USDC_ADDRESS, amountRaw] })
+      );
 
-      setCreateStep("shield");
-      await writeContractAsync({ chainId, address: CONFIDENTIAL_USDC_ADDRESS, abi: CONFIDENTIAL_USDC_ABI, functionName: "shield", args: [amountRaw] });
+      // Step 2: Shield
+      await sendAndWait("shield", () =>
+        writeContractAsync({ chainId, address: CONFIDENTIAL_USDC_ADDRESS, abi: CONFIDENTIAL_USDC_ABI, functionName: "shield", args: [amountRaw] })
+      );
 
-      setCreateStep("operator");
+      // Step 3: Set operator
       const expiry = BigInt(Math.floor(Date.now() / 1000) + 3600);
-      await writeContractAsync({ chainId, address: CONFIDENTIAL_USDC_ADDRESS, abi: CONFIDENTIAL_USDC_ABI, functionName: "setOperator", args: [GHOST_BOUNTY_ADDRESS, expiry] });
+      await sendAndWait("operator", () =>
+        writeContractAsync({ chainId, address: CONFIDENTIAL_USDC_ADDRESS, abi: CONFIDENTIAL_USDC_ABI, functionName: "setOperator", args: [GHOST_BOUNTY_ADDRESS, expiry] })
+      );
 
-      setCreateStep("create");
+      // Step 4: FHE encryption (client-side, no tx)
+      updateStep("encrypt", { status: "confirming" });
       const input = instance.createEncryptedInput(GHOST_BOUNTY_ADDRESS, address);
       input.add64(amount64);
       const encrypted = await input.encrypt();
       const encHandle = toHexString(encrypted.handles[0]);
       const inputProof = toHexString(encrypted.inputProof);
-      const hash = await writeContractAsync({ chainId, address: GHOST_BOUNTY_ADDRESS, abi: GHOST_BOUNTY_ABI, functionName: "createBounty", args: [repoOwner.trim(), repoName.trim(), BigInt(issueNumber), encHandle, inputProof] });
-      setCreateTxHash(hash);
+      updateStep("encrypt", { status: "done" });
+
+      // Step 5: Create bounty
+      await sendAndWait("create", () =>
+        writeContractAsync({ chainId, address: GHOST_BOUNTY_ADDRESS, abi: GHOST_BOUNTY_ABI, functionName: "createBounty", args: [repoOwner.trim(), repoName.trim(), BigInt(issueNumber), encHandle, inputProof] })
+      );
+
+      setCreateStep("done");
+      loadBounties();
     } catch (e: any) {
       console.error("Create bounty failed:", e);
-      console.error("[GhostBounty] Create bounty error details:", e?.message);
-      alert("Bounty creation failed. Please check your inputs and try again.");
+      // Find the first non-done step and mark it as error
+      setTxSteps((prev) => {
+        const updated = [...prev];
+        const failedIdx = updated.findIndex((s) => s.status !== "done");
+        if (failedIdx !== -1) {
+          const msg = e?.shortMessage || e?.message || "Transaction rejected";
+          updated[failedIdx] = { ...updated[failedIdx], status: "error", error: msg };
+        }
+        return updated;
+      });
       setCreateStep("idle");
     }
   };
 
   const handleClaim = async () => {
-    if (!claimBountyId || !claimPrNumber) return;
+    if (!claimBountyId || !claimPrNumber || !publicClient) return;
     setClaimPending(true);
     setClaimResult(null);
+
+    const steps: TxStep[] = [
+      { id: "claim", label: "Submit Claim", description: `Claim bounty #${claimBountyId} with PR #${claimPrNumber}`, status: "pending" },
+    ];
+    setTxSteps(steps);
+    setTxModalTitle("Claim Bounty");
+    setTxModalIcon("\u{1F4E8}");
+    setTxModalOpen(true);
+
     try {
-      console.log("[GhostBounty] Sending claimBounty tx — bountyId:", claimBountyId, "prNumber:", claimPrNumber);
-      await writeContractAsync({ chainId, gas: 5_000_000n, address: GHOST_BOUNTY_ADDRESS, abi: GHOST_BOUNTY_ABI, functionName: "claimBounty", args: [BigInt(claimBountyId), BigInt(claimPrNumber)] });
-      console.log("[GhostBounty] claimBounty tx sent, waiting for Chainlink...");
+      await sendAndWait("claim", () =>
+        writeContractAsync({ chainId, gas: 5_000_000n, address: GHOST_BOUNTY_ADDRESS, abi: GHOST_BOUNTY_ABI, functionName: "claimBounty", args: [BigInt(claimBountyId), BigInt(claimPrNumber)] })
+      );
       claimBountyIdRef.current = claimBountyId;
       setWaitingClaimVerification(true);
       setClaimPending(false);
     } catch (e: any) {
       console.error("[GhostBounty] Claim tx failed:", e);
-      console.error("[GhostBounty] Claim tx error details:", e?.message);
+      setTxSteps((prev) => prev.map((s) => s.status !== "done" ? { ...s, status: "error" as const, error: e?.shortMessage || e?.message || "Transaction rejected" } : s));
       setClaimResult({ success: false, message: "Transaction failed. Please check bounty ID and PR number." });
       setClaimPending(false);
     }
   };
 
   const handleExecuteClaim = async (bountyId: number) => {
+    if (!publicClient) return;
+    const steps: TxStep[] = [
+      { id: "execute", label: "Execute Payment", description: `Transfer encrypted cUSDC for bounty #${bountyId}`, status: "pending" },
+    ];
+    setTxSteps(steps);
+    setTxModalTitle("Execute Payment");
+    setTxModalIcon("\u{1F4B8}");
+    setTxModalOpen(true);
+
     try {
-      console.log("[GhostBounty] Manually executing claim for bounty", bountyId);
-      await writeContractAsync({ chainId, address: GHOST_BOUNTY_ADDRESS, abi: GHOST_BOUNTY_ABI, functionName: "executeClaim", args: [BigInt(bountyId)] });
-      console.log("[GhostBounty] executeClaim tx sent!");
-      loadBounties(); // refresh after tx
+      await sendAndWait("execute", () =>
+        writeContractAsync({ chainId, address: GHOST_BOUNTY_ADDRESS, abi: GHOST_BOUNTY_ABI, functionName: "executeClaim", args: [BigInt(bountyId)] })
+      );
+      loadBounties();
     } catch (e: any) {
-      console.error("[GhostBounty] executeClaim error details:", e?.message);
-      alert("Payment execution failed. Please try again.");
+      console.error("[GhostBounty] executeClaim error:", e);
+      setTxSteps((prev) => prev.map((s) => s.status !== "done" ? { ...s, status: "error" as const, error: e?.shortMessage || e?.message || "Transaction rejected" } : s));
     }
   };
 
   const handleCancel = async (bountyId: number) => {
+    if (!publicClient) return;
+    const steps: TxStep[] = [
+      { id: "cancel", label: "Cancel Bounty", description: `Cancel bounty #${bountyId} and return funds`, status: "pending" },
+    ];
+    setTxSteps(steps);
+    setTxModalTitle("Cancel Bounty");
+    setTxModalIcon("\u{274C}");
+    setTxModalOpen(true);
+
     try {
-      await writeContractAsync({ chainId, address: GHOST_BOUNTY_ADDRESS, abi: GHOST_BOUNTY_ABI, functionName: "cancelBounty", args: [BigInt(bountyId)] });
+      await sendAndWait("cancel", () =>
+        writeContractAsync({ chainId, address: GHOST_BOUNTY_ADDRESS, abi: GHOST_BOUNTY_ABI, functionName: "cancelBounty", args: [BigInt(bountyId)] })
+      );
+      loadBounties();
     } catch (e: any) {
-      console.error("[GhostBounty] Cancel error details:", e?.message);
-      alert("Cancel failed. Please try again.");
+      console.error("[GhostBounty] Cancel error:", e);
+      setTxSteps((prev) => prev.map((s) => s.status !== "done" ? { ...s, status: "error" as const, error: e?.shortMessage || e?.message || "Transaction rejected" } : s));
     }
   };
 
@@ -585,25 +673,14 @@ export default function BountyPage() {
                   <input type="number" step="0.01" value={bountyAmount} onChange={(e) => setBountyAmount(e.target.value)} placeholder="100.00" className="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white placeholder:text-blue-300/20 focus:outline-none focus:border-cyan-500/40 font-mono text-sm" />
                 </div>
               </div>
-              {createStep !== "idle" && createStep !== "done" && (
-                <div className="p-3 rounded-xl bg-cyan-500/5 border border-cyan-500/10">
-                  <div className="flex items-center gap-2 text-xs text-cyan-300">
-                    <div className="w-3 h-3 rounded-full border-2 border-cyan-400 border-t-transparent animate-spin" />
-                    {createStep === "approve" && "Approving USDC..."}
-                    {createStep === "shield" && "Shielding USDC → cUSDC..."}
-                    {createStep === "operator" && "Setting operator permission..."}
-                    {createStep === "create" && "Creating bounty with encrypted amount..."}
-                  </div>
-                </div>
-              )}
               {createStep === "done" && (
                 <div className="p-3 rounded-xl bg-green-500/10 border border-green-500/20 text-center">
                   <p className="text-green-400 text-sm font-semibold">Bounty created successfully!</p>
                   <p className="text-xs text-blue-300/30 mt-1">The reward amount is fully encrypted on-chain</p>
                 </div>
               )}
-              <button onClick={handleCreateBounty} disabled={(createStep !== "idle" && createStep !== "done") || fheLoading || !repoOwner || !repoName || !issueNumber || !bountyAmount} className="w-full py-3 rounded-xl font-bold text-sm bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:from-cyan-400 hover:to-blue-500 disabled:opacity-40 transition-all">
-                {createStep === "done" ? "Create Another" : "Create Bounty"}
+              <button onClick={handleCreateBounty} disabled={createStep === "running" || fheLoading || !repoOwner || !repoName || !issueNumber || !bountyAmount} className="w-full py-3 rounded-xl font-bold text-sm bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:from-cyan-400 hover:to-blue-500 disabled:opacity-40 transition-all">
+                {createStep === "done" ? "Create Another" : createStep === "running" ? "Processing..." : "Create Bounty"}
               </button>
             </div>
           )}
@@ -699,6 +776,21 @@ export default function BountyPage() {
           )}
         </div>
       )}
+      {/* Transaction Modal */}
+      <TransactionModal
+        open={txModalOpen}
+        onClose={() => {
+          setTxModalOpen(false);
+          if (createStep === "done") {
+            // Reset for next bounty creation
+            setCreateStep("idle");
+          }
+        }}
+        title={txModalTitle}
+        steps={txSteps}
+        icon={txModalIcon}
+        chainId={chainId}
+      />
     </div>
   );
 }
