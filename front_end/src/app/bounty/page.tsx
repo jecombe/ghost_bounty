@@ -30,8 +30,59 @@ interface BountyInfo {
   createdAt: number;
 }
 
+interface GitHubRepo {
+  id: number;
+  fullName: string;
+  owner: string;
+  name: string;
+  description: string | null;
+  openIssues: number;
+  stars: number;
+  private: boolean;
+  avatarUrl: string;
+}
+
+interface GitHubIssue {
+  number: number;
+  title: string;
+  state: string;
+  labels: { name: string; color: string }[];
+  createdAt: string;
+  user: { login: string; avatarUrl: string };
+  comments: number;
+}
+
+interface IssueInfo {
+  title: string;
+  labels: { name: string; color: string }[];
+  user?: { login: string; avatarUrl: string };
+}
+
+function RepoRow({ repo, onSelect }: { repo: GitHubRepo; onSelect: (r: GitHubRepo) => void }) {
+  return (
+    <button
+      onClick={() => onSelect(repo)}
+      className="w-full px-3 py-2.5 text-left hover:bg-white/[0.04] flex items-center gap-3 transition-colors"
+    >
+      <img src={repo.avatarUrl} alt="" className="w-6 h-6 rounded-full shrink-0" />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="text-white text-sm font-mono truncate">{repo.fullName}</span>
+          {repo.private && <span className="text-[9px] px-1 py-0.5 rounded bg-amber-500/15 text-amber-400/70 shrink-0">PRIV</span>}
+        </div>
+        {repo.description && <p className="text-blue-300/30 text-[11px] truncate">{repo.description}</p>}
+      </div>
+      <div className="text-right shrink-0 flex items-center gap-2">
+        {repo.stars > 0 && <span className="text-[10px] text-amber-400/40">{repo.stars > 999 ? `${(repo.stars / 1000).toFixed(1)}k` : repo.stars}</span>}
+        <span className="text-[10px] text-blue-300/20">{repo.openIssues} issues</span>
+      </div>
+    </button>
+  );
+}
+
 const STATUS_LABELS = ["Active", "Verifying...", "Verified", "Claimed", "Cancelled"];
 const STATUS_COLORS = ["text-green-400", "text-amber-400", "text-purple-400", "text-cyan-400", "text-red-400"];
+const STATUS_BG = ["bg-green-500/10 border-green-500/20", "bg-amber-500/10 border-amber-500/20", "bg-purple-500/10 border-purple-500/20", "bg-cyan-500/10 border-cyan-500/20", "bg-red-500/10 border-red-500/20"];
 
 export default function BountyPage() {
   const { address, isConnected, chainId } = useAccount();
@@ -57,13 +108,27 @@ export default function BountyPage() {
   const [waitingChainlink, setWaitingChainlink] = useState(false);
   const [verificationSuccess, setVerificationSuccess] = useState(false);
   const [verificationFailed, setVerificationFailed] = useState(false);
-  const sawPendingTrueRef = useRef(false); // track that we saw verificationPending=true at least once
+  const sawPendingTrueRef = useRef(false);
 
   // --- Create Bounty ---
   const [repoOwner, setRepoOwner] = useState("");
   const [repoName, setRepoName] = useState("");
   const [issueNumber, setIssueNumber] = useState("");
   const [bountyAmount, setBountyAmount] = useState("");
+
+  // GitHub Repo/Issue pickers
+  const [selectedRepo, setSelectedRepo] = useState<GitHubRepo | null>(null);
+  const [issues, setIssues] = useState<GitHubIssue[]>([]);
+  const [loadingIssues, setLoadingIssues] = useState(false);
+  const [selectedIssue, setSelectedIssue] = useState<GitHubIssue | null>(null);
+  const [repoSearch, setRepoSearch] = useState("");
+  const [issueSearch, setIssueSearch] = useState("");
+  const [showRepoPicker, setShowRepoPicker] = useState(false);
+  const [showIssuePicker, setShowIssuePicker] = useState(false);
+  const [useManualMode, setUseManualMode] = useState(false);
+  const [searchResults, setSearchResults] = useState<GitHubRepo[]>([]);
+  const [searchingRepos, setSearchingRepos] = useState(false);
+  const searchTimeout = useRef<NodeJS.Timeout | null>(null);
 
   // Pre-fill from query params (?tab=create&owner=x&repo=y&issue=1&amount=100)
   useEffect(() => {
@@ -77,7 +142,10 @@ export default function BountyPage() {
     if (qRepo) setRepoName(qRepo);
     if (qIssue) setIssueNumber(qIssue);
     if (qAmount) setBountyAmount(qAmount);
+    // If pre-filled from URL, switch to manual mode
+    if (qOwner || qRepo || qIssue) setUseManualMode(true);
   }, [searchParams]);
+
   const [createStep, setCreateStep] = useState<"idle" | "running" | "done">("idle");
   // Transaction modal state
   const [txModalOpen, setTxModalOpen] = useState(false);
@@ -96,6 +164,7 @@ export default function BountyPage() {
   // --- Browse ---
   const [bounties, setBounties] = useState<BountyInfo[]>([]);
   const [loadingBounties, setLoadingBounties] = useState(false);
+  const [issueInfoCache, setIssueInfoCache] = useState<Record<string, IssueInfo>>({});
 
   // Reads
   const { data: bountyCount } = useReadContract({
@@ -122,58 +191,81 @@ export default function BountyPage() {
 
   const isRegisteredOnChain = typeof userGithubOnChain === "string" && userGithubOnChain.length > 0;
 
+  // --- Fetch issues when repo selected ---
+  useEffect(() => {
+    if (!selectedRepo) return;
+    setLoadingIssues(true);
+    setIssues([]);
+    setSelectedIssue(null);
+    fetch(`/api/github/issues?owner=${selectedRepo.owner}&repo=${selectedRepo.name}`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data) => setIssues(data))
+      .catch(() => {})
+      .finally(() => setLoadingIssues(false));
+  }, [selectedRepo]);
+
+  // --- Fetch issue info for Browse tab (enrichment) ---
+  const fetchIssueInfo = useCallback(async (owner: string, repo: string, issue: number) => {
+    const key = `${owner}/${repo}#${issue}`;
+    if (issueInfoCache[key]) return;
+    try {
+      const res = await fetch(`/api/github/issue-info?owner=${owner}&repo=${repo}&issue=${issue}`);
+      if (res.ok) {
+        const data = await res.json();
+        setIssueInfoCache((prev) => ({ ...prev, [key]: data }));
+      }
+    } catch {}
+  }, [issueInfoCache]);
+
+  useEffect(() => {
+    bounties.forEach((b) => {
+      if (b.repoOwner && b.repoName && b.issueNumber) {
+        fetchIssueInfo(b.repoOwner, b.repoName, b.issueNumber);
+      }
+    });
+  }, [bounties, fetchIssueInfo]);
+
   // Poll for verification status while pending (Chainlink takes 1-2 min)
   useEffect(() => {
     if (!verificationPending && !waitingChainlink) return;
-    console.log("[GhostBounty] Polling started — verificationPending:", verificationPending, "waitingChainlink:", waitingChainlink);
     const interval = setInterval(async () => {
-      const [ghResult, pendingResult] = await Promise.all([refetchGithub(), refetchPending()]);
-      console.log("[GhostBounty] Poll result — devGithub:", JSON.stringify(ghResult.data), "verificationPending:", JSON.stringify(pendingResult.data));
-    }, 8_000); // every 8s
+      await Promise.all([refetchGithub(), refetchPending()]);
+    }, 8_000);
     return () => clearInterval(interval);
   }, [verificationPending, waitingChainlink, refetchGithub, refetchPending]);
 
-  // Track when we see verificationPending=true on-chain (proves tx was mined)
   useEffect(() => {
     if (waitingChainlink && verificationPending === true) {
-      console.log("[GhostBounty] On-chain verificationPending=true confirmed");
       sawPendingTrueRef.current = true;
     }
   }, [waitingChainlink, verificationPending]);
 
-  // Reset sawPendingTrue when we start a new registration
   useEffect(() => {
     if (waitingChainlink) {
       sawPendingTrueRef.current = false;
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [waitingChainlink === true]); // only on transition to true
+  }, [waitingChainlink === true]);
 
-  // Detect verification success or failure
   useEffect(() => {
     if (waitingChainlink) {
       if (isRegisteredOnChain) {
-        console.log("[GhostBounty] ✓ Verification SUCCESS — devGithub:", userGithubOnChain);
         setWaitingChainlink(false);
         setVerificationSuccess(true);
         setVerificationFailed(false);
         setTimeout(() => setVerificationSuccess(false), 10_000);
       } else if (sawPendingTrueRef.current && verificationPending === false && !isRegisteredOnChain) {
-        // Only declare failure AFTER we saw pending=true then it went back to false
-        console.warn("[GhostBounty] ✗ Verification FAILED — Chainlink responded but devGithub is empty. Check gist content/visibility.");
         setWaitingChainlink(false);
         setVerificationFailed(true);
       }
     }
   }, [isRegisteredOnChain, waitingChainlink, verificationPending, userGithubOnChain]);
 
-  // Poll bounty status after claim tx (Chainlink takes 1-2 min)
-  // Flow: Pending(1) → Verified(2) → executeClaim tx → Claimed(3)
+  // Poll bounty status after claim tx
   const [executingClaim, setExecutingClaim] = useState(false);
   useEffect(() => {
     if (!waitingClaimVerification || !publicClient || !claimBountyIdRef.current) return;
     const bountyId = BigInt(claimBountyIdRef.current);
-    console.log("[GhostBounty] Claim polling started for bountyId:", claimBountyIdRef.current);
 
     const poll = async () => {
       try {
@@ -184,59 +276,44 @@ export default function BountyPage() {
           args: [bountyId],
         });
         const [, , , , status] = result as unknown as [string, string, string, bigint, number, string, bigint];
-        console.log("[GhostBounty] Claim poll — bounty status:", status, "(0=Active, 1=Pending, 2=Verified, 3=Claimed, 4=Cancelled)");
 
         if (status === 2 && !executingClaim) {
-          // Verified — Chainlink confirmed, now execute FHE payment
-          console.log("[GhostBounty] ✓ PR Verified! Executing FHE payment...");
           setExecutingClaim(true);
           try {
-            const txHash = await writeContractAsync({
+            await writeContractAsync({
               chainId,
               address: GHOST_BOUNTY_ADDRESS,
               abi: GHOST_BOUNTY_ABI,
               functionName: "executeClaim",
               args: [bountyId],
             });
-            console.log("[GhostBounty] executeClaim tx sent:", txHash);
-            // Keep polling — will detect status 3 (Claimed) next
           } catch (e: any) {
-            console.error("[GhostBounty] executeClaim failed:", e);
             setWaitingClaimVerification(false);
             setExecutingClaim(false);
-            console.error("[GhostBounty] executeClaim auto error:", e?.message);
             setClaimResult({ success: false, message: "PR verified but payment execution failed. Try clicking 'Execute Payment' in the browse tab." });
           }
         } else if (status === 3) {
-          // Claimed — success!
-          console.log("[GhostBounty] ✓ Claim SUCCESS — bounty paid!");
           setWaitingClaimVerification(false);
           setExecutingClaim(false);
           setClaimResult({ success: true, message: "Bounty claimed successfully! cUSDC has been transferred to your wallet." });
         } else if (status === 0) {
-          // Back to Active — Chainlink verification failed
-          console.warn("[GhostBounty] ✗ Claim FAILED — bounty reverted to Active. PR may not be merged or doesn't reference the issue.");
           setWaitingClaimVerification(false);
           setExecutingClaim(false);
-          setClaimResult({ success: false, message: "Verification failed. Make sure your PR is merged and references the issue (e.g., \"Fixes #42\" in the PR body)." });
+          setClaimResult({ success: false, message: "Verification failed. Make sure your PR is merged and references the issue." });
         }
-        // status === 1 (Pending) → still waiting for Chainlink, keep polling
-      } catch (e) {
-        console.error("[GhostBounty] Claim poll error:", e);
-      }
+      } catch {}
     };
 
-    poll(); // check immediately
+    poll();
     const interval = setInterval(poll, 8_000);
     return () => clearInterval(interval);
   }, [waitingClaimVerification, publicClient, executingClaim, writeContractAsync, chainId]);
 
-  // Helper: update a specific step in the tx modal
+  // Helpers
   const updateStep = useCallback((stepId: string, update: Partial<TxStep>) => {
     setTxSteps((prev) => prev.map((s) => s.id === stepId ? { ...s, ...update } : s));
   }, []);
 
-  // Helper: send tx, wait for receipt, update modal steps
   const sendAndWait = useCallback(async (
     stepId: string,
     txCall: () => Promise<`0x${string}`>,
@@ -266,7 +343,7 @@ export default function BountyPage() {
           });
           const [creator, rOwner, rName, iNum, status, claimedBy, createdAt] = result as unknown as [string, string, string, bigint, number, string, bigint];
           loaded.push({ id: i, creator, repoOwner: rOwner, repoName: rName, issueNumber: Number(iNum), status, claimedBy, createdAt: Number(createdAt) });
-        } catch { /* skip */ }
+        } catch {}
       }
       setBounties(loaded.reverse());
     } finally {
@@ -308,7 +385,6 @@ export default function BountyPage() {
       setWaitingChainlink(true);
       setRegisterPending(false);
     } catch (e: any) {
-      console.error("[GhostBounty] Register failed:", e);
       setTxSteps((prev) => prev.map((s) => s.status !== "done" ? { ...s, status: "error" as const, error: e?.shortMessage || e?.message || "Transaction rejected" } : s));
       setRegisterPending(false);
     }
@@ -334,23 +410,19 @@ export default function BountyPage() {
     setCreateStep("running");
 
     try {
-      // Step 1: Approve
       await sendAndWait("approve", () =>
         writeContractAsync({ chainId, address: USDC_ADDRESS, abi: USDC_ABI, functionName: "approve", args: [CONFIDENTIAL_USDC_ADDRESS, amountRaw] })
       );
 
-      // Step 2: Shield
       await sendAndWait("shield", () =>
         writeContractAsync({ chainId, address: CONFIDENTIAL_USDC_ADDRESS, abi: CONFIDENTIAL_USDC_ABI, functionName: "shield", args: [amountRaw] })
       );
 
-      // Step 3: Set operator
       const expiry = BigInt(Math.floor(Date.now() / 1000) + 3600);
       await sendAndWait("operator", () =>
         writeContractAsync({ chainId, address: CONFIDENTIAL_USDC_ADDRESS, abi: CONFIDENTIAL_USDC_ABI, functionName: "setOperator", args: [GHOST_BOUNTY_ADDRESS, expiry] })
       );
 
-      // Step 4: FHE encryption (client-side, no tx)
       updateStep("encrypt", { status: "confirming" });
       const input = instance.createEncryptedInput(GHOST_BOUNTY_ADDRESS, address);
       input.add64(amount64);
@@ -359,7 +431,6 @@ export default function BountyPage() {
       const inputProof = toHexString(encrypted.inputProof);
       updateStep("encrypt", { status: "done" });
 
-      // Step 5: Create bounty
       await sendAndWait("create", () =>
         writeContractAsync({ chainId, address: GHOST_BOUNTY_ADDRESS, abi: GHOST_BOUNTY_ABI, functionName: "createBounty", args: [repoOwner.trim(), repoName.trim(), BigInt(issueNumber), encHandle, inputProof] })
       );
@@ -367,8 +438,6 @@ export default function BountyPage() {
       setCreateStep("done");
       loadBounties();
     } catch (e: any) {
-      console.error("Create bounty failed:", e);
-      // Find the first non-done step and mark it as error
       setTxSteps((prev) => {
         const updated = [...prev];
         const failedIdx = updated.findIndex((s) => s.status !== "done");
@@ -403,7 +472,6 @@ export default function BountyPage() {
       setWaitingClaimVerification(true);
       setClaimPending(false);
     } catch (e: any) {
-      console.error("[GhostBounty] Claim tx failed:", e);
       setTxSteps((prev) => prev.map((s) => s.status !== "done" ? { ...s, status: "error" as const, error: e?.shortMessage || e?.message || "Transaction rejected" } : s));
       setClaimResult({ success: false, message: "Transaction failed. Please check bounty ID and PR number." });
       setClaimPending(false);
@@ -426,7 +494,6 @@ export default function BountyPage() {
       );
       loadBounties();
     } catch (e: any) {
-      console.error("[GhostBounty] executeClaim error:", e);
       setTxSteps((prev) => prev.map((s) => s.status !== "done" ? { ...s, status: "error" as const, error: e?.shortMessage || e?.message || "Transaction rejected" } : s));
     }
   };
@@ -447,15 +514,68 @@ export default function BountyPage() {
       );
       loadBounties();
     } catch (e: any) {
-      console.error("[GhostBounty] Cancel error:", e);
       setTxSteps((prev) => prev.map((s) => s.status !== "done" ? { ...s, status: "error" as const, error: e?.shortMessage || e?.message || "Transaction rejected" } : s));
     }
   };
 
-  const tabs: { id: Tab; label: string }[] = [
-    { id: "browse", label: "Bounties" },
-    { id: "create", label: "Create" },
-    { id: "claim", label: "Claim" },
+  // Handle selecting a repo from picker
+  const handleSelectRepo = (repo: GitHubRepo) => {
+    setSelectedRepo(repo);
+    setRepoOwner(repo.owner);
+    setRepoName(repo.name);
+    setShowRepoPicker(false);
+    setRepoSearch("");
+    // Reset issue
+    setSelectedIssue(null);
+    setIssueNumber("");
+  };
+
+  // Handle selecting an issue from picker
+  const handleSelectIssue = (issue: GitHubIssue) => {
+    setSelectedIssue(issue);
+    setIssueNumber(String(issue.number));
+    setShowIssuePicker(false);
+    setIssueSearch("");
+  };
+
+  // Handle "Claim this bounty" from browse tab
+  const handleClaimFromBrowse = (b: BountyInfo) => {
+    setTab("claim");
+    setClaimBountyId(String(b.id));
+    setClaimPrNumber("");
+    setClaimResult(null);
+  };
+
+  // Debounced search for public repos
+  const handleRepoSearchChange = (val: string) => {
+    setRepoSearch(val);
+    if (searchTimeout.current) clearTimeout(searchTimeout.current);
+    if (val.length >= 2) {
+      setSearchingRepos(true);
+      searchTimeout.current = setTimeout(() => {
+        fetch(`/api/github/search?q=${encodeURIComponent(val)}`)
+          .then((r) => r.ok ? r.json() : [])
+          .then((data) => setSearchResults(data))
+          .catch(() => setSearchResults([]))
+          .finally(() => setSearchingRepos(false));
+      }, 400);
+    } else {
+      setSearchResults([]);
+      setSearchingRepos(false);
+    }
+  };
+
+  const filteredRepos = searchResults;
+
+  const filteredIssues = issues.filter((i) =>
+    i.title.toLowerCase().includes(issueSearch.toLowerCase()) ||
+    String(i.number).includes(issueSearch)
+  );
+
+  const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
+    { id: "browse", label: "Bounties", icon: <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg> },
+    { id: "create", label: "Create", icon: <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg> },
+    { id: "claim", label: "Claim", icon: <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg> },
   ];
 
   return (
@@ -479,7 +599,7 @@ export default function BountyPage() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-white text-sm font-semibold">Connect your GitHub</p>
-              <p className="text-blue-300/40 text-xs mt-0.5">Required to claim bounties and verify PR authorship</p>
+              <p className="text-blue-300/40 text-xs mt-0.5">Required to claim bounties and auto-fill repos/issues</p>
             </div>
             <button onClick={() => signIn("github")} className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/[0.08] hover:bg-white/[0.12] border border-white/[0.1] text-white text-sm font-semibold transition-all">
               <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" /></svg>
@@ -540,7 +660,7 @@ export default function BountyPage() {
                         </svg>
                         <div>
                           <p className="text-red-400 text-xs font-semibold">Verification failed</p>
-                          <p className="text-red-400/60 text-[10px] mt-0.5">Chainlink could not verify your gist. Make sure the gist is <strong>public</strong> (not secret), contains your wallet address, and belongs to your GitHub account. Then try again.</p>
+                          <p className="text-red-400/60 text-[10px] mt-0.5">Chainlink could not verify your gist. Make sure the gist is <strong>public</strong>, contains your wallet address, and belongs to your account.</p>
                         </div>
                       </div>
                     )}
@@ -549,7 +669,7 @@ export default function BountyPage() {
                       <ol className="text-xs text-blue-300/30 space-y-1 list-decimal list-inside">
                         <li>Go to <a href="https://gist.github.com" target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:text-cyan-300 underline">gist.github.com</a> and create a <strong className="text-white">public</strong> gist</li>
                         <li>In the gist content, paste your wallet address: <code className="text-cyan-400/80">{address}</code></li>
-                        <li>Copy the gist ID from the URL (the hex string after your username)</li>
+                        <li>Copy the gist ID from the URL</li>
                         <li>Paste it below and click Verify</li>
                       </ol>
                     </div>
@@ -558,7 +678,7 @@ export default function BountyPage() {
                         type="text"
                         value={gistId}
                         onChange={(e) => setGistId(e.target.value)}
-                        placeholder="Gist ID (e.g., abc123def456...)"
+                        placeholder="Gist ID or full URL"
                         className="flex-1 px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white placeholder:text-blue-300/20 focus:outline-none focus:border-cyan-500/40 font-mono text-sm"
                       />
                       <button
@@ -580,7 +700,8 @@ export default function BountyPage() {
       {/* Tabs */}
       <div className="flex gap-1 p-1 rounded-xl bg-white/[0.03] border border-white/[0.04]">
         {tabs.map((t) => (
-          <button key={t.id} onClick={() => setTab(t.id)} className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-all ${tab === t.id ? "bg-cyan-500/15 text-cyan-300 border border-cyan-500/20" : "text-blue-300/40 hover:text-white hover:bg-white/5 border border-transparent"}`}>
+          <button key={t.id} onClick={() => setTab(t.id)} className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-all flex items-center justify-center gap-2 ${tab === t.id ? "bg-cyan-500/15 text-cyan-300 border border-cyan-500/20" : "text-blue-300/40 hover:text-white hover:bg-white/5 border border-transparent"}`}>
+            {t.icon}
             {t.label}
           </button>
         ))}
@@ -598,51 +719,102 @@ export default function BountyPage() {
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-bold text-white">Bounties</h2>
-                <button onClick={loadBounties} className="text-xs text-cyan-400 hover:text-cyan-300">Refresh</button>
+                <button onClick={loadBounties} className="text-xs text-cyan-400 hover:text-cyan-300 flex items-center gap-1">
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                  Refresh
+                </button>
               </div>
               {loadingBounties ? (
-                <p className="text-blue-300/40 text-sm text-center py-8">Loading bounties...</p>
+                <div className="flex items-center justify-center gap-2 py-8">
+                  <div className="w-4 h-4 rounded-full border-2 border-cyan-400 border-t-transparent animate-spin" />
+                  <p className="text-blue-300/40 text-sm">Loading bounties...</p>
+                </div>
               ) : bounties.length === 0 ? (
-                <p className="text-blue-300/40 text-sm text-center py-8">No bounties yet. Create the first one!</p>
+                <div className="text-center py-12 space-y-3">
+                  <div className="w-12 h-12 mx-auto rounded-2xl bg-white/[0.03] border border-white/[0.06] flex items-center justify-center">
+                    <svg className="w-6 h-6 text-blue-300/20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
+                  </div>
+                  <p className="text-blue-300/40 text-sm">No bounties yet</p>
+                  <button onClick={() => setTab("create")} className="text-xs text-cyan-400 hover:text-cyan-300">Create the first one</button>
+                </div>
               ) : (
                 <div className="space-y-3">
-                  {bounties.map((b) => (
-                    <div key={b.id} className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.06] space-y-2">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span className="text-white font-mono text-sm">#{b.id}</span>
-                          <a href={`https://github.com/${b.repoOwner}/${b.repoName}/issues/${b.issueNumber}`} target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:text-cyan-300 text-sm font-medium">
-                            {b.repoOwner}/{b.repoName}#{b.issueNumber}
-                          </a>
+                  {bounties.map((b) => {
+                    const infoKey = `${b.repoOwner}/${b.repoName}#${b.issueNumber}`;
+                    const info = issueInfoCache[infoKey];
+                    return (
+                      <div key={b.id} className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.06] hover:border-white/[0.1] transition-all space-y-3">
+                        {/* Top row: ID + Status badge */}
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="text-blue-300/30 font-mono text-xs">#{b.id}</span>
+                              <a href={`https://github.com/${b.repoOwner}/${b.repoName}/issues/${b.issueNumber}`} target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:text-cyan-300 text-xs font-medium font-mono">
+                                {b.repoOwner}/{b.repoName}#{b.issueNumber}
+                              </a>
+                            </div>
+                            {/* Issue title from GitHub */}
+                            {info?.title && (
+                              <p className="text-white text-sm font-medium leading-snug truncate">{info.title}</p>
+                            )}
+                          </div>
+                          <span className={`shrink-0 text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border ${STATUS_BG[b.status]} ${STATUS_COLORS[b.status]}`}>
+                            {STATUS_LABELS[b.status]}
+                          </span>
                         </div>
-                        <span className={`text-xs font-semibold ${STATUS_COLORS[b.status]}`}>{STATUS_LABELS[b.status]}</span>
+
+                        {/* Labels from GitHub */}
+                        {info?.labels && info.labels.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5">
+                            {info.labels.slice(0, 5).map((l) => (
+                              <span key={l.name} className="text-[10px] px-2 py-0.5 rounded-full border font-medium" style={{ borderColor: `#${l.color}40`, color: `#${l.color}`, backgroundColor: `#${l.color}15` }}>
+                                {l.name}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Meta row */}
+                        <div className="flex items-center justify-between text-xs text-blue-300/30">
+                          <div className="flex items-center gap-3">
+                            {info?.user?.avatarUrl && (
+                              <img src={info.user.avatarUrl} alt="" className="w-4 h-4 rounded-full" />
+                            )}
+                            <span>by {b.creator.slice(0, 6)}...{b.creator.slice(-4)}</span>
+                          </div>
+                          <span className="font-mono text-cyan-500/40 flex items-center gap-1">
+                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                            ENCRYPTED
+                          </span>
+                        </div>
+
+                        {/* Actions */}
+                        <div className="flex gap-2 pt-1">
+                          {b.status === 0 && (
+                            <button onClick={() => handleClaimFromBrowse(b)} className="text-xs px-3 py-1.5 rounded-lg bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20 border border-cyan-500/20 transition-all">
+                              Claim this bounty
+                            </button>
+                          )}
+                          {b.status === 0 && b.creator.toLowerCase() === address?.toLowerCase() && (
+                            <button onClick={() => handleCancel(b.id)} className="text-xs px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20 transition-all">
+                              Cancel
+                            </button>
+                          )}
+                          {b.status === 2 && b.claimedBy.toLowerCase() === address?.toLowerCase() && (
+                            <button onClick={() => handleExecuteClaim(b.id)} className="text-xs px-3 py-1.5 rounded-lg bg-purple-500/10 text-purple-300 hover:bg-purple-500/20 border border-purple-500/20 transition-all animate-pulse">
+                              Execute Payment
+                            </button>
+                          )}
+                          {b.status === 3 && (
+                            <span className="text-xs text-blue-300/30 flex items-center gap-1">
+                              <svg className="w-3 h-3 text-cyan-500/50" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4" /></svg>
+                              Paid to {b.claimedBy.slice(0, 6)}...{b.claimedBy.slice(-4)}
+                            </span>
+                          )}
+                        </div>
                       </div>
-                      <div className="flex items-center justify-between text-xs text-blue-300/40">
-                        <span>by {b.creator.slice(0, 6)}...{b.creator.slice(-4)}</span>
-                        <span className="font-mono text-cyan-500/60">Amount: ENCRYPTED</span>
-                      </div>
-                      <div className="flex gap-2">
-                        {b.status === 0 && (
-                          <button onClick={() => { setTab("claim"); setClaimBountyId(String(b.id)); }} className="text-xs px-3 py-1.5 rounded-lg bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20 border border-cyan-500/20">
-                            Claim this bounty
-                          </button>
-                        )}
-                        {b.status === 0 && b.creator.toLowerCase() === address?.toLowerCase() && (
-                          <button onClick={() => handleCancel(b.id)} className="text-xs px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20">
-                            Cancel
-                          </button>
-                        )}
-                        {b.status === 2 && b.claimedBy.toLowerCase() === address?.toLowerCase() && (
-                          <button onClick={() => handleExecuteClaim(b.id)} className="text-xs px-3 py-1.5 rounded-lg bg-purple-500/10 text-purple-300 hover:bg-purple-500/20 border border-purple-500/20">
-                            Execute Payment
-                          </button>
-                        )}
-                        {b.status === 3 && (
-                          <span className="text-xs text-blue-300/30">Paid to {b.claimedBy.slice(0, 6)}...{b.claimedBy.slice(-4)}</span>
-                        )}
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -651,28 +823,226 @@ export default function BountyPage() {
           {/* CREATE */}
           {tab === "create" && (
             <div className="space-y-4">
-              <h2 className="text-lg font-bold text-white">Create a Bounty</h2>
-              <p className="text-xs text-blue-300/40">Post a bounty on a GitHub issue. The reward amount is encrypted — nobody can see how much you're offering.</p>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-blue-300/50 mb-1">Repo Owner</label>
-                  <input type="text" value={repoOwner} onChange={(e) => setRepoOwner(e.target.value)} placeholder="ethereum" className="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white placeholder:text-blue-300/20 focus:outline-none focus:border-cyan-500/40 font-mono text-sm" />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-blue-300/50 mb-1">Repo Name</label>
-                  <input type="text" value={repoName} onChange={(e) => setRepoName(e.target.value)} placeholder="go-ethereum" className="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white placeholder:text-blue-300/20 focus:outline-none focus:border-cyan-500/40 font-mono text-sm" />
-                </div>
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-bold text-white">Create a Bounty</h2>
+                {session && !useManualMode && (
+                  <button onClick={() => setUseManualMode(true)} className="text-[10px] text-blue-300/30 hover:text-blue-300/50 transition-colors">
+                    Enter manually
+                  </button>
+                )}
+                {useManualMode && session && (
+                  <button onClick={() => { setUseManualMode(false); setSelectedRepo(null); setSelectedIssue(null); }} className="text-[10px] text-blue-300/30 hover:text-blue-300/50 transition-colors">
+                    Use picker
+                  </button>
+                )}
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-blue-300/50 mb-1">Issue #</label>
-                  <input type="number" value={issueNumber} onChange={(e) => setIssueNumber(e.target.value)} placeholder="42" className="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white placeholder:text-blue-300/20 focus:outline-none focus:border-cyan-500/40 font-mono text-sm" />
+              <p className="text-xs text-blue-300/40">Post a bounty on a GitHub issue. The reward amount is encrypted on-chain.</p>
+
+              {/* GitHub Picker Mode */}
+              {session && !useManualMode ? (
+                <div className="space-y-3">
+                  {/* Repo Picker */}
+                  <div className="relative">
+                    <label className="block text-xs font-medium text-blue-300/50 mb-1">Repository</label>
+                    <button
+                      onClick={() => { setShowRepoPicker(!showRepoPicker); setShowIssuePicker(false); }}
+                      className="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.08] text-left flex items-center justify-between hover:border-cyan-500/30 transition-all"
+                    >
+                      {selectedRepo ? (
+                        <div className="flex items-center gap-2.5">
+                          <img src={selectedRepo.avatarUrl} alt="" className="w-5 h-5 rounded-full" />
+                          <span className="text-white text-sm font-mono">{selectedRepo.fullName}</span>
+                          {selectedRepo.private && <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 font-semibold">PRIVATE</span>}
+                        </div>
+                      ) : (
+                        <span className="text-blue-300/20 text-sm">Select a repository...</span>
+                      )}
+                      <svg className={`w-4 h-4 text-blue-300/30 transition-transform ${showRepoPicker ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                    </button>
+
+                    {showRepoPicker && (
+                      <div className="absolute top-full left-0 right-0 mt-1 z-30 rounded-xl bg-[#0a1628] border border-white/[0.1] shadow-2xl shadow-black/50 max-h-72 overflow-hidden flex flex-col">
+                        <div className="p-2 border-b border-white/[0.06]">
+                          <input
+                            type="text"
+                            value={repoSearch}
+                            onChange={(e) => handleRepoSearchChange(e.target.value)}
+                            placeholder="Search your repos or any public repo..."
+                            autoFocus
+                            className="w-full px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.06] text-white placeholder:text-blue-300/20 focus:outline-none focus:border-cyan-500/30 text-sm"
+                          />
+                        </div>
+                        <div className="overflow-y-auto flex-1">
+                          {searchingRepos ? (
+                            <div className="flex items-center justify-center gap-2 py-6 text-blue-300/40 text-sm">
+                              <div className="w-3 h-3 rounded-full border-2 border-blue-400 border-t-transparent animate-spin" />
+                              Searching GitHub...
+                            </div>
+                          ) : filteredRepos.length === 0 ? (
+                            <p className="text-blue-300/30 text-xs text-center py-6">{repoSearch.length >= 2 ? "No repos found" : "Type to search repos..."}</p>
+                          ) : (
+                            filteredRepos.map((r) => (
+                              <RepoRow key={r.id} repo={r} onSelect={handleSelectRepo} />
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Issue Picker */}
+                  <div className="relative">
+                    <label className="block text-xs font-medium text-blue-300/50 mb-1">Issue</label>
+                    <button
+                      onClick={() => { if (selectedRepo) { setShowIssuePicker(!showIssuePicker); setShowRepoPicker(false); } }}
+                      disabled={!selectedRepo}
+                      className="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.08] text-left flex items-center justify-between hover:border-cyan-500/30 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      {selectedIssue ? (
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <span className="text-cyan-400/70 text-sm font-mono shrink-0">#{selectedIssue.number}</span>
+                          <span className="text-white text-sm truncate">{selectedIssue.title}</span>
+                        </div>
+                      ) : (
+                        <span className="text-blue-300/20 text-sm">{selectedRepo ? "Select an issue..." : "Select a repo first"}</span>
+                      )}
+                      <svg className={`w-4 h-4 text-blue-300/30 transition-transform shrink-0 ${showIssuePicker ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                    </button>
+
+                    {showIssuePicker && (
+                      <div className="absolute top-full left-0 right-0 mt-1 z-30 rounded-xl bg-[#0a1628] border border-white/[0.1] shadow-2xl shadow-black/50 max-h-80 overflow-hidden flex flex-col">
+                        <div className="p-2 border-b border-white/[0.06]">
+                          <input
+                            type="text"
+                            value={issueSearch}
+                            onChange={(e) => setIssueSearch(e.target.value)}
+                            placeholder="Search issues by title or number..."
+                            autoFocus
+                            className="w-full px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.06] text-white placeholder:text-blue-300/20 focus:outline-none focus:border-cyan-500/30 text-sm"
+                          />
+                        </div>
+                        <div className="overflow-y-auto flex-1">
+                          {loadingIssues ? (
+                            <div className="flex items-center justify-center gap-2 py-6 text-blue-300/40 text-sm">
+                              <div className="w-3 h-3 rounded-full border-2 border-blue-400 border-t-transparent animate-spin" />
+                              Loading issues...
+                            </div>
+                          ) : filteredIssues.length === 0 ? (
+                            <p className="text-blue-300/30 text-xs text-center py-6">{issues.length === 0 ? "No open issues" : "No matching issues"}</p>
+                          ) : (
+                            filteredIssues.map((i) => (
+                              <button
+                                key={i.number}
+                                onClick={() => handleSelectIssue(i)}
+                                className="w-full px-3 py-2.5 text-left hover:bg-white/[0.04] transition-colors"
+                              >
+                                <div className="flex items-start gap-2.5">
+                                  <span className="text-cyan-400/60 text-xs font-mono mt-0.5 shrink-0">#{i.number}</span>
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-white text-sm leading-snug">{i.title}</p>
+                                    <div className="flex items-center gap-2 mt-1 flex-wrap">
+                                      {i.labels.slice(0, 3).map((l) => (
+                                        <span key={l.name} className="text-[9px] px-1.5 py-0.5 rounded-full border font-medium" style={{ borderColor: `#${l.color}40`, color: `#${l.color}`, backgroundColor: `#${l.color}10` }}>
+                                          {l.name}
+                                        </span>
+                                      ))}
+                                      <span className="text-[10px] text-blue-300/20">{i.comments} comments</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Amount */}
+                  <div>
+                    <label className="block text-xs font-medium text-blue-300/50 mb-1">Reward (USDC)</label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={bountyAmount}
+                        onChange={(e) => setBountyAmount(e.target.value)}
+                        placeholder="100.00"
+                        className="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white placeholder:text-blue-300/20 focus:outline-none focus:border-cyan-500/40 font-mono text-sm pr-16"
+                      />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-blue-300/30 font-semibold">USDC</span>
+                    </div>
+                  </div>
+
+                  {/* Quick amounts */}
+                  <div className="flex gap-2">
+                    {["25", "50", "100", "250", "500"].map((amt) => (
+                      <button
+                        key={amt}
+                        onClick={() => setBountyAmount(amt)}
+                        className={`flex-1 py-1.5 rounded-lg text-xs font-mono transition-all border ${bountyAmount === amt ? "bg-cyan-500/15 text-cyan-300 border-cyan-500/25" : "bg-white/[0.02] text-blue-300/30 border-white/[0.04] hover:text-white hover:border-white/[0.1]"}`}
+                      >
+                        ${amt}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-xs font-medium text-blue-300/50 mb-1">Reward (USDC)</label>
-                  <input type="number" step="0.01" value={bountyAmount} onChange={(e) => setBountyAmount(e.target.value)} placeholder="100.00" className="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white placeholder:text-blue-300/20 focus:outline-none focus:border-cyan-500/40 font-mono text-sm" />
+              ) : (
+                /* Manual Mode (or not signed in) */
+                <div className="space-y-3">
+                  {!session && (
+                    <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.06] flex items-center gap-2.5">
+                      <svg className="w-4 h-4 text-cyan-400/50 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                      <p className="text-xs text-blue-300/30">
+                        <button onClick={() => signIn("github")} className="text-cyan-400 hover:text-cyan-300">Sign in with GitHub</button> to auto-fill repos and issues
+                      </p>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-blue-300/50 mb-1">Repo Owner</label>
+                      <input type="text" value={repoOwner} onChange={(e) => setRepoOwner(e.target.value)} placeholder="ethereum" className="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white placeholder:text-blue-300/20 focus:outline-none focus:border-cyan-500/40 font-mono text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-blue-300/50 mb-1">Repo Name</label>
+                      <input type="text" value={repoName} onChange={(e) => setRepoName(e.target.value)} placeholder="go-ethereum" className="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white placeholder:text-blue-300/20 focus:outline-none focus:border-cyan-500/40 font-mono text-sm" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-blue-300/50 mb-1">Issue #</label>
+                      <input type="number" value={issueNumber} onChange={(e) => setIssueNumber(e.target.value)} placeholder="42" className="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white placeholder:text-blue-300/20 focus:outline-none focus:border-cyan-500/40 font-mono text-sm" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-blue-300/50 mb-1">Reward (USDC)</label>
+                      <input type="number" step="0.01" value={bountyAmount} onChange={(e) => setBountyAmount(e.target.value)} placeholder="100.00" className="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white placeholder:text-blue-300/20 focus:outline-none focus:border-cyan-500/40 font-mono text-sm" />
+                    </div>
+                  </div>
                 </div>
-              </div>
+              )}
+
+              {/* Selected issue preview */}
+              {selectedIssue && !useManualMode && (
+                <div className="p-3 rounded-xl bg-cyan-500/5 border border-cyan-500/15">
+                  <div className="flex items-start gap-2">
+                    <svg className="w-4 h-4 text-cyan-400 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                    <div className="min-w-0">
+                      <p className="text-xs text-cyan-300 font-semibold">{selectedRepo?.fullName}#{selectedIssue.number}</p>
+                      <p className="text-xs text-white/80 mt-0.5">{selectedIssue.title}</p>
+                      {selectedIssue.labels.length > 0 && (
+                        <div className="flex gap-1 mt-1.5 flex-wrap">
+                          {selectedIssue.labels.map((l) => (
+                            <span key={l.name} className="text-[9px] px-1.5 py-0.5 rounded-full border" style={{ borderColor: `#${l.color}40`, color: `#${l.color}`, backgroundColor: `#${l.color}10` }}>
+                              {l.name}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {createStep === "done" && (
                 <div className="p-3 rounded-xl bg-green-500/10 border border-green-500/20 text-center">
                   <p className="text-green-400 text-sm font-semibold">Bounty created successfully!</p>
@@ -680,7 +1050,7 @@ export default function BountyPage() {
                 </div>
               )}
               <button onClick={handleCreateBounty} disabled={createStep === "running" || fheLoading || !repoOwner || !repoName || !issueNumber || !bountyAmount} className="w-full py-3 rounded-xl font-bold text-sm bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:from-cyan-400 hover:to-blue-500 disabled:opacity-40 transition-all">
-                {createStep === "done" ? "Create Another" : createStep === "running" ? "Processing..." : "Create Bounty"}
+                {createStep === "done" ? "Create Another" : createStep === "running" ? "Processing..." : fheLoading ? "Loading FHE..." : "Create Bounty"}
               </button>
             </div>
           )}
@@ -689,7 +1059,6 @@ export default function BountyPage() {
           {tab === "claim" && (
             <div className="space-y-4">
               <h2 className="text-lg font-bold text-white">Claim a Bounty</h2>
-              <p className="text-xs text-blue-300/40">Enter the bounty ID and your merged PR number. Chainlink Functions verifies your PR via the GitHub API. Payment is automatic.</p>
 
               {!session && (
                 <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20">
@@ -705,6 +1074,38 @@ export default function BountyPage() {
                 <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center gap-2">
                   <div className="w-3 h-3 rounded-full border-2 border-amber-400 border-t-transparent animate-spin shrink-0" />
                   <p className="text-amber-400 text-xs">Verification in progress... You'll be able to claim once verified.</p>
+                </div>
+              )}
+
+              {/* Active bounties quick-select */}
+              {bounties.filter((b) => b.status === 0).length > 0 && (
+                <div className="space-y-2">
+                  <label className="block text-xs font-medium text-blue-300/50">Select a bounty to claim</label>
+                  <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                    {bounties.filter((b) => b.status === 0).map((b) => {
+                      const infoKey = `${b.repoOwner}/${b.repoName}#${b.issueNumber}`;
+                      const info = issueInfoCache[infoKey];
+                      const isSelected = claimBountyId === String(b.id);
+                      return (
+                        <button
+                          key={b.id}
+                          onClick={() => setClaimBountyId(String(b.id))}
+                          className={`w-full p-3 rounded-xl text-left transition-all border ${isSelected ? "bg-cyan-500/10 border-cyan-500/25" : "bg-white/[0.02] border-white/[0.06] hover:border-white/[0.1]"}`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className={`text-xs font-mono ${isSelected ? "text-cyan-300" : "text-blue-300/30"}`}>#{b.id}</span>
+                              <span className={`text-xs font-mono ${isSelected ? "text-cyan-400" : "text-cyan-400/50"}`}>{b.repoOwner}/{b.repoName}#{b.issueNumber}</span>
+                            </div>
+                            {isSelected && (
+                              <svg className="w-4 h-4 text-cyan-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                            )}
+                          </div>
+                          {info?.title && <p className={`text-xs mt-1 truncate ${isSelected ? "text-white/80" : "text-blue-300/30"}`}>{info.title}</p>}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
 
@@ -732,7 +1133,7 @@ export default function BountyPage() {
                         {executingClaim ? "PR verified! Executing encrypted payment..." : "Chainlink is verifying your PR..."}
                       </p>
                       <p className="text-amber-400/50 text-[10px] mt-0.5">
-                        {executingClaim ? "Sending FHE-encrypted payment to your wallet." : "Checking if PR is merged and references the issue. This takes 1-2 minutes."}
+                        {executingClaim ? "Sending FHE-encrypted payment to your wallet." : "Checking if PR is merged and references the issue. 1-2 minutes."}
                       </p>
                     </div>
                   </div>
@@ -765,11 +1166,10 @@ export default function BountyPage() {
               <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.04]">
                 <h3 className="text-xs font-semibold text-blue-300/50 mb-2">How it works</h3>
                 <ol className="text-xs text-blue-300/30 space-y-1 list-decimal list-inside">
-                  <li>Sign in with GitHub and verify your identity via gist</li>
-                  <li>Your PR must reference the bounty's issue (e.g., "Fixes #42")</li>
-                  <li>Chainlink Functions calls the GitHub API to verify the PR is merged</li>
+                  <li>Select a bounty and enter your merged PR number</li>
+                  <li>Chainlink verifies the PR is merged and references the issue</li>
                   <li>If verified, cUSDC is automatically transferred to your wallet</li>
-                  <li>Nobody sees the payment amount — FHE-encrypted end-to-end</li>
+                  <li>Go to <a href="/shield" className="text-cyan-400 hover:text-cyan-300 underline">Shield</a> page to convert to USDC</li>
                 </ol>
               </div>
             </div>
@@ -782,7 +1182,6 @@ export default function BountyPage() {
         onClose={() => {
           setTxModalOpen(false);
           if (createStep === "done") {
-            // Reset for next bounty creation
             setCreateStep("idle");
           }
         }}
