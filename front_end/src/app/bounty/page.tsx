@@ -203,7 +203,7 @@ export default function BountyPage() {
   const [linkedPRs, setLinkedPRs] = useState<Record<string, LinkedPR[]>>({});
 
   // Reads
-  const { data: bountyCount } = useReadContract({
+  const { data: bountyCount, refetch: refetchBountyCount } = useReadContract({
     address: GHOST_BOUNTY_ADDRESS,
     abi: GHOST_BOUNTY_ABI,
     functionName: "bountyCount",
@@ -418,10 +418,19 @@ export default function BountyPage() {
 
   // Load bounties
   const loadBounties = useCallback(async () => {
-    if (!publicClient || !bountyCount) return;
+    if (!publicClient) return;
     setLoadingBounties(true);
     try {
-      const count = Number(bountyCount);
+      // Always read fresh count from chain
+      const freshCount = await publicClient.readContract({
+        address: GHOST_BOUNTY_ADDRESS,
+        abi: GHOST_BOUNTY_ABI,
+        functionName: "bountyCount",
+      });
+      const count = Number(freshCount);
+      // Also update the cached hook value
+      refetchBountyCount();
+
       const loaded: BountyInfo[] = [];
       for (let i = 0; i < Math.min(count, 50); i++) {
         try {
@@ -439,7 +448,7 @@ export default function BountyPage() {
     } finally {
       setLoadingBounties(false);
     }
-  }, [publicClient, bountyCount]);
+  }, [publicClient, refetchBountyCount]);
 
   useEffect(() => { loadBounties(); }, [loadBounties]);
 
