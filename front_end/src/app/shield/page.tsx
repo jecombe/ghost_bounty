@@ -10,6 +10,7 @@ import {
   CONFIDENTIAL_USDC_ABI,
 } from "@/lib/contracts";
 import { useFheBalances } from "@/hooks/useFheBalances";
+import { useSfx } from "@/hooks/useSfx";
 
 type Mode = "shield" | "unshield";
 
@@ -18,6 +19,7 @@ export default function ShieldPage() {
   const { writeContractAsync } = useWriteContract();
   const { cusdcFormatted, decrypt, decrypting, decryptMsg, decryptError, canDecrypt, invalidate } = useFheBalances();
 
+  const { play: playSfx } = useSfx();
   const [mode, setMode] = useState<Mode>("shield");
   const [amount, setAmount] = useState("");
   const [txHash, setTxHash] = useState<`0x${string}` | undefined>();
@@ -99,6 +101,7 @@ export default function ShieldPage() {
   };
 
   const handleSubmit = () => {
+    playSfx("shield");
     setStep("idle");
     setTxHash(undefined);
     if (mode === "shield") handleShield();
@@ -164,7 +167,7 @@ export default function ShieldPage() {
             {(["shield", "unshield"] as Mode[]).map((m) => (
               <button
                 key={m}
-                onClick={() => { setMode(m); reset(); }}
+                onClick={() => { playSfx("tab"); setMode(m); reset(); }}
                 className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-all capitalize ${
                   mode === m
                     ? "bg-cyan-500/15 text-cyan-300 border border-cyan-500/20"

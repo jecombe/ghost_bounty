@@ -24,7 +24,7 @@ const STORAGE_KEY_SFX = "fortune-sfx-volume";
 const AmbienceContext = createContext<AmbienceState | null>(null);
 
 export function AmbienceProvider({ children }: { children: ReactNode }) {
-  const [soundOn, setSoundOn] = useState(true);
+  const [soundOn, setSoundOn] = useState(false);
   const [musicVolume, setMusicVolumeState] = useState(80);
   const [sfxVolume, setSfxVolumeState] = useState(80);
   const [timeMode, setTimeMode] = useState<TimeMode>("auto");

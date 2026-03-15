@@ -82,7 +82,7 @@ export default function DocsPage() {
                 />
                 <Feature
                   title="Automatic payouts"
-                  desc="When a developer's PR is verified as merged, the encrypted payment is automatically transferred to their wallet. No invoicing needed."
+                  desc="When a developer's PR is verified as merged by Chainlink, the encrypted payment is transferred to their wallet via executeClaim. The 2% protocol fee is calculated entirely in FHE. No invoicing needed."
                 />
                 <Feature
                   title="Identity verification"
@@ -132,12 +132,13 @@ export default function DocsPage() {
                 <li>Enter the <strong className="text-white">repository name</strong> (e.g., <code className="text-cyan-400/70">go-ethereum</code>)</li>
                 <li>Enter the <strong className="text-white">issue number</strong> you want to put a bounty on</li>
                 <li>Enter the <strong className="text-white">reward amount</strong> in USDC — this will be encrypted</li>
-                <li>Sign the 4 transactions:
+                <li>Sign the 5 transactions:
                   <ul className="mt-1 ml-4 space-y-1 list-disc">
-                    <li><strong className="text-white">Approve</strong> — Allow cUSDC contract to use your USDC</li>
+                    <li><strong className="text-white">Approve</strong> — Allow cUSDC contract to spend your USDC</li>
                     <li><strong className="text-white">Shield</strong> — Convert USDC to encrypted cUSDC</li>
-                    <li><strong className="text-white">Operator</strong> — Allow GhostBounty to use your cUSDC</li>
-                    <li><strong className="text-white">Create</strong> — Create the bounty with encrypted amount</li>
+                    <li><strong className="text-white">Operator</strong> — Authorize GhostBounty to handle your cUSDC (1-hour expiry)</li>
+                    <li><strong className="text-white">Encrypt</strong> — FHE-encrypt the bounty amount client-side</li>
+                    <li><strong className="text-white">Create</strong> — Create the bounty with the encrypted amount on-chain</li>
                   </ul>
                 </li>
               </ol>
@@ -151,9 +152,14 @@ export default function DocsPage() {
             </Card>
 
             <Card title="Cancellation">
-              <p className="text-blue-300/40 text-xs leading-relaxed">
-                You can cancel an unclaimed bounty at any time to get your escrowed cUSDC back.
+              <p className="text-blue-300/40 text-xs leading-relaxed mb-2">
+                You can cancel an <strong className="text-white">Active</strong> bounty at any time to get your escrowed cUSDC back.
                 Simply click "Cancel" on your bounty in the Browse tab. The encrypted funds are returned to your wallet.
+              </p>
+              <p className="text-blue-300/40 text-xs leading-relaxed">
+                If a bounty is stuck in <strong className="text-white">Pending</strong> or <strong className="text-white">Verified</strong> status
+                (e.g. Chainlink callback failed), you can use the <strong className="text-white">emergency cancel</strong> after a 7-day timeout.
+                This prevents funds from being permanently locked.
               </p>
             </Card>
 
@@ -186,7 +192,7 @@ export default function DocsPage() {
                 <li>Paste it in the "Gist ID" field and click <strong className="text-white">Verify</strong></li>
                 <li>Chainlink Functions will verify your gist belongs to your GitHub account (takes ~1-2 min)</li>
               </ol>
-              <InfoBox type="info" text="The gist must be PUBLIC and contain your exact wallet address. Chainlink nodes will check both the gist owner and the content." />
+              <InfoBox type="info" text="The gist must be PUBLIC and contain your exact wallet address. Chainlink nodes will check both the gist owner and the content. Re-registration has a 7-day cooldown." />
             </Card>
 
             <Card title="Step 3 — Find and work on a bounty">
@@ -201,18 +207,18 @@ export default function DocsPage() {
               <ol className="space-y-2 text-xs text-blue-300/40 leading-relaxed list-decimal list-inside">
                 <li>Wait for your PR to be <strong className="text-white">merged</strong></li>
                 <li>Go to the <strong className="text-white">"Claim"</strong> tab</li>
-                <li>Enter the <strong className="text-white">bounty ID</strong> and your <strong className="text-white">PR number</strong></li>
-                <li>Click <strong className="text-white">"Claim Bounty"</strong></li>
-                <li>Chainlink Functions verifies via the GitHub API that your PR is merged and references the issue</li>
-                <li>If verified, <strong className="text-white">cUSDC is automatically transferred</strong> to your wallet</li>
+                <li>The app <strong className="text-white">auto-detects</strong> your merged PRs that match active bounties — just click "Claim" on the one you want. You can also enter bounty ID and PR number manually.</li>
+                <li>Chainlink Functions verifies via the GitHub API that your PR is merged and references the issue (~1-2 min)</li>
+                <li>Once verified, the bounty moves to <strong className="text-white">Verified</strong> status and <strong className="text-white">executeClaim</strong> is called automatically to transfer the encrypted cUSDC payment to your wallet (minus the 2% protocol fee)</li>
               </ol>
+              <InfoBox type="info" text="The claim process has cooldowns: 2 minutes between your claims, and 10 minutes between claims on the same bounty. This prevents spam." />
             </Card>
 
             <Card title="Receiving your payment">
               <p className="text-blue-300/40 text-xs leading-relaxed">
                 Payment arrives as <strong className="text-white">cUSDC</strong> (Confidential USDC) — an FHE-encrypted token.
-                You can "unshield" it back to regular USDC at any time via the cUSDC contract.
-                The amount you received is <strong className="text-white">only visible to you</strong>.
+                You can unshield it back to regular USDC at any time via the <Link href="/shield" className="text-cyan-400 hover:text-cyan-300">Shield page</Link>.
+                The amount you received is <strong className="text-white">only visible to you</strong> — you can decrypt your balance in the header bar.
               </p>
             </Card>
           </div>
@@ -242,30 +248,31 @@ export default function DocsPage() {
 
             <Card title="Flow diagram">
               <div className="space-y-4 text-xs font-mono">
-                <FlowStep num="1" label="CREATE BOUNTY" detail="Project owner → USDC → shield → cUSDC → FHE encrypt amount → GhostBounty contract (escrow)" />
-                <FlowStep num="2" label="DEV REGISTRATION" detail="Developer → GitHub OAuth → create public gist with ETH address → Chainlink verifies gist ownership → on-chain mapping" />
-                <FlowStep num="3" label="CLAIM BOUNTY" detail="Developer → claimBounty(bountyId, prNumber) → Chainlink Functions → GitHub API → verify PR merged + references issue → return author username" />
-                <FlowStep num="4" label="AUTO-PAYMENT" detail="Chainlink callback → match username to registered address → FHE fee calculation → confidentialTransfer(cUSDC) to developer" />
+                <FlowStep num="1" label="CREATE BOUNTY" detail="Project owner → approve USDC → shield to cUSDC → set operator → FHE encrypt amount client-side → createBounty() → cUSDC escrowed in GhostBounty contract" />
+                <FlowStep num="2" label="DEV REGISTRATION" detail="Developer → GitHub OAuth → create public gist with ETH address → registerDev(username, gistId) → Chainlink verifies gist ownership → on-chain mapping (username ↔ address)" />
+                <FlowStep num="3" label="CLAIM REQUEST" detail="Developer → claimBounty(bountyId, prNumber) → bounty status: Active → Pending → Chainlink Functions calls GitHub API → verifies PR merged + references issue + returns author" />
+                <FlowStep num="4" label="VERIFICATION" detail="Chainlink callback → match PR author to registered address → bounty status: Pending → Verified → claimedBy set to developer address" />
+                <FlowStep num="5" label="PAYMENT" detail="executeClaim(bountyId) → FHE fee calculation (2% of encrypted amount) → confidentialTransfer(amount - fee) to developer → bounty status: Verified → Claimed" />
               </div>
             </Card>
 
-            <Card title="Smart contract">
+            <Card title="Smart contracts">
               <div className="space-y-2 text-xs text-blue-300/40">
                 <div className="flex justify-between items-center p-2 rounded-lg bg-white/[0.02]">
-                  <span>Contract</span>
+                  <span>Bounty contract</span>
                   <code className="text-cyan-400/70 text-[11px]">GhostBounty.sol</code>
+                </div>
+                <div className="flex justify-between items-center p-2 rounded-lg bg-white/[0.02]">
+                  <span>Token contract</span>
+                  <code className="text-cyan-400/70 text-[11px]">ConfidentialUSDC.sol</code>
                 </div>
                 <div className="flex justify-between items-center p-2 rounded-lg bg-white/[0.02]">
                   <span>Network</span>
                   <span className="text-white">Sepolia Testnet</span>
                 </div>
                 <div className="flex justify-between items-center p-2 rounded-lg bg-white/[0.02]">
-                  <span>Address</span>
-                  <code className="text-cyan-400/70 text-[11px]">0xE4Ed29F6cd79cf7aC1db5193608b45573aa7F341</code>
-                </div>
-                <div className="flex justify-between items-center p-2 rounded-lg bg-white/[0.02]">
                   <span>Protocol fee</span>
-                  <span className="text-white">2%</span>
+                  <span className="text-white">2% (max 5%)</span>
                 </div>
                 <div className="flex justify-between items-center p-2 rounded-lg bg-white/[0.02]">
                   <span>Source timelock</span>
@@ -275,6 +282,39 @@ export default function DocsPage() {
                   <span>Admin timelock</span>
                   <span className="text-white">24 hours</span>
                 </div>
+                <div className="flex justify-between items-center p-2 rounded-lg bg-white/[0.02]">
+                  <span>Registration cooldown</span>
+                  <span className="text-white">7 days</span>
+                </div>
+                <div className="flex justify-between items-center p-2 rounded-lg bg-white/[0.02]">
+                  <span>Pending timeout</span>
+                  <span className="text-white">7 days (emergency cancel)</span>
+                </div>
+              </div>
+            </Card>
+
+            <Card title="Bounty status lifecycle">
+              <div className="space-y-3 text-xs text-blue-300/40">
+                <p className="leading-relaxed">Bounties follow a strict state machine with 5 statuses:</p>
+                <div className="grid grid-cols-5 gap-1.5">
+                  {[
+                    { status: "Active", color: "text-green-400 bg-green-500/10 border-green-500/20" },
+                    { status: "Pending", color: "text-amber-400 bg-amber-500/10 border-amber-500/20" },
+                    { status: "Verified", color: "text-purple-400 bg-purple-500/10 border-purple-500/20" },
+                    { status: "Claimed", color: "text-cyan-400 bg-cyan-500/10 border-cyan-500/20" },
+                    { status: "Cancelled", color: "text-red-400 bg-red-500/10 border-red-500/20" },
+                  ].map((s) => (
+                    <div key={s.status} className={`text-center p-2 rounded-lg border text-[10px] font-bold ${s.color}`}>{s.status}</div>
+                  ))}
+                </div>
+                <ul className="space-y-1.5 mt-2">
+                  <li><span className="text-white">Active → Pending</span> — developer calls claimBounty, Chainlink request sent</li>
+                  <li><span className="text-white">Pending → Verified</span> — Chainlink confirms PR is merged</li>
+                  <li><span className="text-white">Verified → Claimed</span> — executeClaim transfers encrypted payment</li>
+                  <li><span className="text-white">Pending → Active</span> — Chainlink verification fails, bounty reopens</li>
+                  <li><span className="text-white">Active → Cancelled</span> — creator cancels, cUSDC returned</li>
+                  <li><span className="text-white">Pending/Verified → Cancelled</span> — emergency cancel after 7-day timeout</li>
+                </ul>
               </div>
             </Card>
           </div>
@@ -288,14 +328,17 @@ export default function DocsPage() {
 
             <Card title="Security features">
               <ul className="space-y-3">
-                <Feature title="Identity verification via Chainlink" desc="Developers must prove GitHub ownership through a public gist. Chainlink Functions verifies the gist belongs to the claimed username and contains the caller's ETH address." />
-                <Feature title="Bounty status machine" desc="Bounties have 4 states: Active, Pending, Claimed, Cancelled. Only one Chainlink verification can run at a time per bounty, preventing race conditions." />
+                <Feature title="Identity verification via Chainlink" desc="Developers must prove GitHub ownership through a public gist. Chainlink Functions verifies the gist belongs to the claimed username and contains the caller's ETH address. A 7-day cooldown prevents re-registration spam." />
+                <Feature title="Bounty status machine" desc="Bounties have 5 states: Active, Pending, Verified, Claimed, Cancelled. Only one Chainlink verification can run at a time per bounty, preventing race conditions." />
                 <Feature title="48-hour timelock on code changes" desc="The JavaScript source code executed by Chainlink nodes cannot be changed instantly. Any modification requires a 48-hour delay, giving users time to verify and exit." />
-                <Feature title="24-hour timelock on fee changes" desc="Protocol fee and treasury address changes require 24 hours to take effect." />
-                <Feature title="Input sanitization" desc="Repository names and usernames are validated on-chain (safe characters only, length limits). GitHub usernames are normalized to lowercase." />
-                <Feature title="FHE access control" desc="Encrypted bounty amounts are only accessible to the bounty creator and the developer who claimed it." />
+                <Feature title="24-hour timelock on fee changes" desc="Protocol fee (max 5%) and treasury address changes require 24 hours to take effect." />
+                <Feature title="Input sanitization" desc="Repository names are validated on-chain: alphanumeric, dash, underscore, and dot only, max 100 characters. GitHub usernames are normalized to lowercase, max 39 characters." />
+                <Feature title="Rate limiting" desc="Claim cooldowns prevent spam: 2-minute cooldown per developer, 10-minute cooldown per bounty between claim attempts." />
+                <Feature title="Emergency cancel" desc="If a bounty is stuck in Pending or Verified for 7 days (e.g. Chainlink callback failure), the creator can emergency-cancel to recover escrowed funds." />
+                <Feature title="FHE access control" desc="Encrypted bounty amounts are only accessible to the bounty creator and the developer who claimed it. Fee calculations happen entirely in FHE." />
                 <Feature title="Reentrancy protection" desc="All state-changing functions use OpenZeppelin's ReentrancyGuard." />
                 <Feature title="Emergency pause" desc="The contract can be paused by the owner in case of a discovered vulnerability." />
+                <Feature title="Secrets expiration" desc="Chainlink DON-hosted secrets have an expiration timestamp. The contract blocks new claims and registrations when secrets are expired." />
               </ul>
             </Card>
 
@@ -328,9 +371,10 @@ export default function DocsPage() {
 
             <Card title="For project owners">
               <div className="space-y-4">
-                <FAQ q="Can I cancel a bounty?" a="Yes. You can cancel any Active or Pending bounty. The escrowed cUSDC is returned to your wallet." />
+                <FAQ q="Can I cancel a bounty?" a="Yes. You can cancel any Active bounty instantly. If a bounty is stuck in Pending or Verified status (e.g. Chainlink callback failed), you can use emergency cancel after 7 days. In both cases, the escrowed cUSDC is returned to your wallet." />
                 <FAQ q="Can I have multiple bounties on the same issue?" a="No. One bounty per issue to avoid confusion. Cancel the existing one first if you want to change the amount." />
                 <FAQ q="What happens if nobody claims my bounty?" a="Nothing — the funds stay in escrow. You can cancel and retrieve them at any time." />
+                <FAQ q="What are the repo name restrictions?" a="Repository owner and name must be 1-100 characters, using only letters, numbers, dashes, underscores, and dots. They are normalized to lowercase on-chain." />
               </div>
             </Card>
 
@@ -338,8 +382,11 @@ export default function DocsPage() {
               <div className="space-y-4">
                 <FAQ q="Why do I need to create a gist?" a="The gist proves you own the GitHub account. Without it, someone could register your GitHub username and steal your bounty payments. Chainlink verifies the gist belongs to you." />
                 <FAQ q="How long does verification take?" a="Chainlink Functions typically responds within 1-2 minutes. Both identity verification (gist) and bounty claim verification follow this timeline." />
-                <FAQ q="What if my PR is merged but the claim fails?" a="The bounty reverts to 'Active' status if verification fails. Common reasons: PR doesn't reference the issue, your GitHub username isn't registered, or Chainlink secrets expired. You can try again." />
+                <FAQ q="What if my PR is merged but the claim fails?" a="The bounty reverts to 'Active' status if verification fails. Common reasons: PR doesn't reference the issue, your GitHub username isn't registered, or Chainlink secrets expired. You can try again after the 10-minute bounty cooldown." />
                 <FAQ q="Can I claim a bounty from any GitHub account?" a="You can only claim bounties where YOU authored the merged PR. Chainlink checks the PR author matches your registered GitHub username." />
+                <FAQ q="Can I re-register with a different GitHub account?" a="Yes, but there is a 7-day cooldown between registrations. This prevents abuse of the identity system." />
+                <FAQ q="What is the executeClaim step?" a="After Chainlink verifies your PR (status: Verified), a separate executeClaim transaction transfers the encrypted payment. The app calls this automatically, but anyone can call it — it's permissionless." />
+                <FAQ q="Does the app auto-detect my claimable bounties?" a="Yes. The Claim tab automatically scans active bounties for merged PRs from your GitHub account, so you don't need to manually enter bounty IDs." />
               </div>
             </Card>
           </div>
