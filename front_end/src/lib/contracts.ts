@@ -33,6 +33,7 @@ export const GHOST_BOUNTY_ABI = [
   { type: "function", name: "devRegistry", inputs: [{ name: "githubUsername", type: "string" }], outputs: [{ name: "", type: "address" }], stateMutability: "view" },
   { type: "function", name: "devGithub", inputs: [{ name: "addr", type: "address" }], outputs: [{ name: "", type: "string" }], stateMutability: "view" },
   { type: "function", name: "devVerificationPending", inputs: [{ name: "addr", type: "address" }], outputs: [{ name: "", type: "bool" }], stateMutability: "view" },
+  { type: "function", name: "getBountyAmount", inputs: [{ name: "bountyId", type: "uint256" }], outputs: [{ name: "", type: "bytes32" }], stateMutability: "view" },
   { type: "function", name: "feeBps", inputs: [], outputs: [{ name: "", type: "uint256" }], stateMutability: "view" },
   { type: "function", name: "secretsValid", inputs: [], outputs: [{ name: "", type: "bool" }], stateMutability: "view" },
   { type: "event", name: "BountyCreated", inputs: [{ name: "bountyId", type: "uint256", indexed: true }, { name: "repoOwner", type: "string", indexed: false }, { name: "repoName", type: "string", indexed: false }, { name: "issueNumber", type: "uint64", indexed: false }, { name: "timestamp", type: "uint256", indexed: false }] },

@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { useAccount, useReadContract, useWriteContract, usePublicClient } from "wagmi";
-import { parseUnits } from "viem";
+import { parseUnits, formatUnits } from "viem";
 import { useSession, signIn, signOut } from "next-auth/react";
 import {
   GHOST_BOUNTY_ADDRESS,
@@ -103,7 +103,7 @@ const STATUS_BG = ["bg-green-500/10 border-green-500/20", "bg-amber-500/10 borde
 export default function BountyPage() {
   const { address, isConnected, chainId } = useAccount();
   const publicClient = usePublicClient();
-  const { instance, status: fheStatus } = useFhevm();
+  const { instance, status: fheStatus, ethersSigner } = useFhevm();
   const fheLoading = fheStatus !== "ready";
   const { writeContractAsync } = useWriteContract();
   const { cusdcBalance, cusdcFormatted, hasEncryptedBalance, decrypt, canDecrypt, decrypting, decryptMsg, decryptError } = useFheBalances();
@@ -201,6 +201,8 @@ export default function BountyPage() {
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "claimed" | "cancelled">("all");
   const [issueInfoCache, setIssueInfoCache] = useState<Record<string, IssueInfo>>({});
   const [githubNames, setGithubNames] = useState<Record<string, string>>({});
+  const [decryptedAmounts, setDecryptedAmounts] = useState<Record<number, string>>({});
+  const [decryptingBounty, setDecryptingBounty] = useState<number | null>(null);
   const [linkedPRs, setLinkedPRs] = useState<Record<string, LinkedPR[]>>({});
 
   // Reads
@@ -483,6 +485,53 @@ export default function BountyPage() {
       }
     })();
   }, [publicClient, bounties, githubNames]);
+
+  // Decrypt a bounty reward amount (only creator or claimedBy can do this)
+  const handleDecryptBountyAmount = useCallback(async (bountyId: number) => {
+    if (!publicClient || !instance || !ethersSigner || !address) return;
+    setDecryptingBounty(bountyId);
+    try {
+      // Read the encrypted handle from the contract
+      const handle = await publicClient.readContract({
+        address: GHOST_BOUNTY_ADDRESS,
+        abi: GHOST_BOUNTY_ABI,
+        functionName: "getBountyAmount",
+        args: [BigInt(bountyId)],
+      }) as string;
+
+      if (!handle || handle === "0x0000000000000000000000000000000000000000000000000000000000000000") {
+        setDecryptedAmounts((prev) => ({ ...prev, [bountyId]: "0.00" }));
+        return;
+      }
+
+      const { publicKey, privateKey } = instance.generateKeypair();
+      const startTimestamp = Math.floor(Date.now() / 1000);
+      const durationDays = 1;
+      const contractAddresses = [GHOST_BOUNTY_ADDRESS];
+
+      const eip712 = instance.createEIP712(publicKey, contractAddresses, startTimestamp, durationDays);
+      const signature = await ethersSigner.signTypedData(
+        eip712.domain,
+        { UserDecryptRequestVerification: eip712.types.UserDecryptRequestVerification },
+        eip712.message,
+      );
+
+      const requests = [{ handle, contractAddress: GHOST_BOUNTY_ADDRESS }];
+      const results = await instance.userDecrypt(
+        requests, privateKey, publicKey, signature,
+        contractAddresses, address, startTimestamp, durationDays,
+      );
+
+      const value = results[handle];
+      const amount = value !== undefined ? BigInt(value as any) : 0n;
+      const formatted = parseFloat(formatUnits(amount, 6)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      setDecryptedAmounts((prev) => ({ ...prev, [bountyId]: formatted }));
+    } catch (err: any) {
+      console.error("Decrypt bounty amount error:", err);
+    } finally {
+      setDecryptingBounty(null);
+    }
+  }, [publicClient, instance, ethersSigner, address]);
 
   // --- Handlers ---
 
@@ -1035,10 +1084,34 @@ export default function BountyPage() {
                                 <span className="font-mono">{b.claimedBy.slice(0, 6)}...{b.claimedBy.slice(-4)}</span>
                               </span>
                             )}
-                            <span className="font-mono text-cyan-500/30 flex items-center gap-0.5 shrink-0">
-                              <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
-                              FHE
-                            </span>
+                            {(() => {
+                              const isCreator = b.creator.toLowerCase() === address?.toLowerCase();
+                              const isClaimer = b.claimedBy?.toLowerCase() === address?.toLowerCase() && b.claimedBy !== "0x0000000000000000000000000000000000000000";
+                              // Creator can always reveal; claimer only after payment (status 3)
+                              const canReveal = isCreator || (isClaimer && b.status === 3);
+
+                              if (decryptedAmounts[b.id]) {
+                                return <span className="font-mono text-green-400/70 font-bold shrink-0">{decryptedAmounts[b.id]} USDC</span>;
+                              }
+                              if (canReveal) {
+                                return (
+                                  <button
+                                    onClick={() => handleDecryptBountyAmount(b.id)}
+                                    disabled={decryptingBounty === b.id || fheLoading}
+                                    className="font-mono text-cyan-500/40 hover:text-cyan-400 flex items-center gap-0.5 shrink-0 transition-colors disabled:opacity-40"
+                                  >
+                                    <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                                    {decryptingBounty === b.id ? "..." : "Reveal"}
+                                  </button>
+                                );
+                              }
+                              return (
+                                <span className="font-mono text-cyan-500/30 flex items-center gap-0.5 shrink-0">
+                                  <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                                  FHE
+                                </span>
+                              );
+                            })()}
                           </div>
 
                           {/* Actions */}
