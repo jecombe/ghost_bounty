@@ -1063,48 +1063,42 @@ export default function BountyPage() {
                   {/* Repo Picker */}
                   <div className="relative">
                     <label className="block text-xs font-medium text-blue-300/50 mb-1">Repository</label>
-                    <button
-                      onClick={() => { setShowRepoPicker(!showRepoPicker); setShowIssuePicker(false); }}
-                      className="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.08] text-left flex items-center justify-between hover:border-cyan-500/30 transition-all"
-                    >
-                      {selectedRepo ? (
-                        <div className="flex items-center gap-2.5">
-                          <img src={selectedRepo.avatarUrl} alt="" className="w-5 h-5 rounded-full" />
-                          <span className="text-white text-sm font-mono">{selectedRepo.fullName}</span>
-                          {selectedRepo.private && <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 font-semibold">PRIVATE</span>}
-                        </div>
-                      ) : (
-                        <span className="text-blue-300/20 text-sm">Select a repository...</span>
-                      )}
-                      <svg className={`w-4 h-4 text-blue-300/30 transition-transform ${showRepoPicker ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-                    </button>
+                    {selectedRepo ? (
+                      <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.08]">
+                        <img src={selectedRepo.avatarUrl} alt="" className="w-5 h-5 rounded-full" />
+                        <span className="text-white text-sm font-mono flex-1">{selectedRepo.fullName}</span>
+                        {selectedRepo.private && <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 font-semibold">PRIVATE</span>}
+                        <button onClick={() => { setSelectedRepo(null); setSelectedIssue(null); setRepoSearch(""); setShowRepoPicker(true); }} className="text-blue-300/30 hover:text-white transition-colors">
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                        </button>
+                      </div>
+                    ) : (
+                      <div>
+                        <input
+                          type="text"
+                          value={repoSearch}
+                          onChange={(e) => handleRepoSearchChange(e.target.value)}
+                          onFocus={() => { setShowRepoPicker(true); setShowIssuePicker(false); }}
+                          placeholder="Search repos..."
+                          className="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white placeholder:text-blue-300/20 focus:outline-none focus:border-cyan-500/30 text-sm transition-all"
+                        />
+                      </div>
+                    )}
 
-                    {showRepoPicker && (
-                      <div className="absolute top-full left-0 right-0 mt-1 z-30 rounded-xl bg-[#0a1628] border border-white/[0.1] shadow-2xl shadow-black/50 max-h-72 overflow-hidden flex flex-col">
-                        <div className="p-2 border-b border-white/[0.06]">
-                          <input
-                            type="text"
-                            value={repoSearch}
-                            onChange={(e) => handleRepoSearchChange(e.target.value)}
-                            placeholder="Search your repos or any public repo..."
-                            autoFocus
-                            className="w-full px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.06] text-white placeholder:text-blue-300/20 focus:outline-none focus:border-cyan-500/30 text-sm"
-                          />
-                        </div>
-                        <div className="overflow-y-auto flex-1">
-                          {searchingRepos ? (
-                            <div className="flex items-center justify-center gap-2 py-6 text-blue-300/40 text-sm">
-                              <div className="w-3 h-3 rounded-full border-2 border-blue-400 border-t-transparent animate-spin" />
-                              Searching GitHub...
-                            </div>
-                          ) : filteredRepos.length === 0 ? (
-                            <p className="text-blue-300/30 text-xs text-center py-6">{repoSearch.length >= 2 ? "No repos found" : "Type to search repos..."}</p>
-                          ) : (
-                            filteredRepos.map((r) => (
-                              <RepoRow key={r.id} repo={r} onSelect={handleSelectRepo} />
-                            ))
-                          )}
-                        </div>
+                    {showRepoPicker && !selectedRepo && (repoSearch.length >= 2 || filteredRepos.length > 0 || searchingRepos) && (
+                      <div className="absolute top-full left-0 right-0 mt-1 z-30 rounded-xl bg-[#0a1628] border border-white/[0.1] shadow-2xl shadow-black/50 max-h-72 overflow-y-auto">
+                        {searchingRepos ? (
+                          <div className="flex items-center justify-center gap-2 py-6 text-blue-300/40 text-sm">
+                            <div className="w-3 h-3 rounded-full border-2 border-blue-400 border-t-transparent animate-spin" />
+                            Searching GitHub...
+                          </div>
+                        ) : filteredRepos.length === 0 ? (
+                          <p className="text-blue-300/30 text-xs text-center py-6">No repos found</p>
+                        ) : (
+                          filteredRepos.map((r) => (
+                            <RepoRow key={r.id} repo={r} onSelect={handleSelectRepo} />
+                          ))
+                        )}
                       </div>
                     )}
                   </div>
