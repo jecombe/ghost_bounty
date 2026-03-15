@@ -904,7 +904,7 @@ export default function BountyPage() {
                               <svg className="w-3 h-3 shrink-0 text-blue-300/20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
                               <span>Created {new Date(b.createdAt * 1000).toLocaleDateString()}</span>
                             </div>
-                            {b.pendingSince > 0 && (
+                            {b.pendingSince > 0 && (b.status === 1 || b.status === 2) && (
                               <div className="flex items-center gap-1.5">
                                 <svg className="w-3 h-3 shrink-0 text-blue-300/20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                                 <span>Pending since {new Date(b.pendingSince * 1000).toLocaleDateString()}</span>
@@ -936,9 +936,9 @@ export default function BountyPage() {
                             </button>
                           )}
                           {b.status === 3 && (
-                            <span className="text-xs text-blue-300/30 flex items-center gap-1">
-                              <svg className="w-3 h-3 text-cyan-500/50" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4" /></svg>
-                              Paid to {githubNames[b.claimedBy.toLowerCase()] ? `@${githubNames[b.claimedBy.toLowerCase()]}` : `${b.claimedBy.slice(0, 6)}...${b.claimedBy.slice(-4)}`}
+                            <span className="text-xs text-green-400/60 flex items-center gap-1">
+                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4" /></svg>
+                              Completed
                             </span>
                           )}
                         </div>
