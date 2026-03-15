@@ -1003,10 +1003,16 @@ export default function BountyPage() {
 
                         {/* Actions */}
                         <div className="flex gap-2 pt-1">
-                          {b.status === 0 && (
+                          {b.status === 0 && linkedPRs[infoKey]?.some((pr) => pr.merged) && (
                             <button onClick={() => handleClaimFromBrowse(b)} className="text-xs px-3 py-1.5 rounded-lg bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20 border border-cyan-500/20 transition-all">
                               Claim this bounty
                             </button>
+                          )}
+                          {b.status === 0 && !linkedPRs[infoKey]?.some((pr) => pr.merged) && (
+                            <span className="text-xs text-blue-300/20 flex items-center gap-1">
+                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                              {linkedPRs[infoKey]?.length ? "Waiting for PR to be merged" : "No PR linked yet"}
+                            </span>
                           )}
                           {b.status === 0 && b.creator.toLowerCase() === address?.toLowerCase() && (
                             <button onClick={() => handleCancel(b.id)} className="text-xs px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20 transition-all">
