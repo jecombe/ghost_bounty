@@ -62,14 +62,12 @@ ghost_bounty/
 │   ├── test/                            # 77 tests (Mocha + Chai)
 │   └── scripts/                         # Chainlink setup scripts
 │
-├── front_end/          # Next.js 16 application
-│   └── src/
-│       ├── app/                         # Pages & API routes
-│       ├── components/                  # UI components
-│       ├── hooks/                       # FHE, balance, SFX hooks
-│       └── lib/                         # Wagmi, contracts, auth
-│
-└── ghost_bounty_demo.mp4               # Demo video
+└── front_end/          # Next.js 16 application
+    └── src/
+        ├── app/                         # Pages & API routes
+        ├── components/                  # UI components
+        ├── hooks/                       # FHE, balance, SFX hooks
+        └── lib/                         # Wagmi, contracts, auth
 ```
 
 See detailed documentation:
