@@ -41,8 +41,6 @@ smart_contract/.next/
 # Scripts with secrets
 smart_contract/scripts/uploadSecrets.*
 
-# Large media (upload via GitHub releases or drag-and-drop)
-*.mp4
 
 # Misc
 *.tsbuildinfo
