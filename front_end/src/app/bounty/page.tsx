@@ -491,12 +491,13 @@ export default function BountyPage() {
     if (!publicClient || !instance || !ethersSigner || !address) return;
     setDecryptingBounty(bountyId);
     try {
-      // Read the encrypted handle from the contract
+      // Read the encrypted handle — must use account so msg.sender is set
       const handle = await publicClient.readContract({
         address: GHOST_BOUNTY_ADDRESS,
         abi: GHOST_BOUNTY_ABI,
         functionName: "getBountyAmount",
         args: [BigInt(bountyId)],
+        account: address,
       }) as string;
 
       if (!handle || handle === "0x0000000000000000000000000000000000000000000000000000000000000000") {
