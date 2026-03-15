@@ -9,6 +9,7 @@ import { CONFIDENTIAL_USDC_ADDRESS, CONFIDENTIAL_USDC_ABI } from "@/lib/contract
 interface FheBalancesState {
   cusdcBalance: bigint | null;
   cusdcFormatted: string;
+  hasEncryptedBalance: boolean;
   canDecrypt: boolean;
   fhevmStatus: FhevmStatus;
   decrypting: boolean;
@@ -46,6 +47,7 @@ export function FheBalancesProvider({ children }: { children: ReactNode }) {
     query: { enabled: !!address && CONFIDENTIAL_USDC_ADDRESS !== "0x0000000000000000000000000000000000000000" },
   });
 
+  const hasEncryptedBalance = !!cusdcHandle && cusdcHandle !== ZERO_HASH;
   const canDecrypt = fhevmStatus === "ready" && !!ethersSigner && !!address;
 
   const decrypt = useCallback(async () => {
@@ -112,7 +114,7 @@ export function FheBalancesProvider({ children }: { children: ReactNode }) {
 
   return (
     <FheBalancesContext.Provider value={{
-      cusdcBalance, cusdcFormatted, canDecrypt, fhevmStatus,
+      cusdcBalance, cusdcFormatted, hasEncryptedBalance, canDecrypt, fhevmStatus,
       decrypting, decryptMsg, decryptError, decrypt, invalidate, retryFhevm,
     }}>
       {children}

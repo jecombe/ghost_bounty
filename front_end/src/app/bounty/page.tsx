@@ -14,6 +14,7 @@ import {
   USDC_ABI,
 } from "@/lib/contracts";
 import { useFhevm } from "@/hooks/useFhevm";
+import { useFheBalances } from "@/hooks/useFheBalances";
 import { toHexString } from "@/lib/fhe/sdk";
 import { TransactionModal, type TxStep } from "@/components/TransactionModal";
 import { useSfx } from "@/hooks/useSfx";
@@ -105,6 +106,7 @@ export default function BountyPage() {
   const { instance, status: fheStatus } = useFhevm();
   const fheLoading = fheStatus !== "ready";
   const { writeContractAsync } = useWriteContract();
+  const { cusdcBalance, cusdcFormatted, hasEncryptedBalance, decrypt, canDecrypt, decrypting, decryptMsg, decryptError } = useFheBalances();
 
   const { play: playSfx } = useSfx();
 
@@ -206,6 +208,18 @@ export default function BountyPage() {
     abi: GHOST_BOUNTY_ABI,
     functionName: "bountyCount",
   });
+
+  const { data: usdcBalance } = useReadContract({
+    address: USDC_ADDRESS,
+    abi: USDC_ABI,
+    functionName: "balanceOf",
+    args: address ? [address] : undefined,
+    query: { enabled: !!address },
+  });
+
+  const hasCusdc = cusdcBalance !== null && cusdcBalance > 0n;
+  const mayHaveCusdc = hasEncryptedBalance;
+  const [payWithCusdc, setPayWithCusdc] = useState(false);
 
   const { data: userGithubOnChain, refetch: refetchGithub } = useReadContract({
     address: GHOST_BOUNTY_ADDRESS,
@@ -503,10 +517,13 @@ export default function BountyPage() {
     playSfx("createBounty");
     const amountRaw = parseUnits(bountyAmount, 6);
     const amount64 = Number(amountRaw);
+    const skipShield = payWithCusdc;
 
     const steps: TxStep[] = [
-      { id: "approve", label: "Approve USDC", description: `Allow cUSDC contract to spend ${bountyAmount} USDC`, status: "pending" },
-      { id: "shield", label: "Shield USDC", description: "Convert plain USDC into encrypted cUSDC", status: "pending" },
+      ...(!skipShield ? [
+        { id: "approve", label: "Approve USDC", description: `Allow cUSDC contract to spend ${bountyAmount} USDC`, status: "pending" as const },
+        { id: "shield", label: "Shield USDC", description: "Convert plain USDC into encrypted cUSDC", status: "pending" as const },
+      ] : []),
       { id: "operator", label: "Set Operator", description: "Authorize GhostBounty to handle your cUSDC", status: "pending" },
       { id: "encrypt", label: "Encrypt Amount", description: "FHE-encrypt the bounty amount client-side", status: "pending" },
       { id: "create", label: "Create Bounty", description: `Post bounty on ${repoOwner}/${repoName}#${issueNumber}`, status: "pending" },
@@ -519,13 +536,15 @@ export default function BountyPage() {
     setCreateStep("running");
 
     try {
-      await sendAndWait("approve", () =>
-        writeContractAsync({ chainId, address: USDC_ADDRESS, abi: USDC_ABI, functionName: "approve", args: [CONFIDENTIAL_USDC_ADDRESS, amountRaw] })
-      );
+      if (!skipShield) {
+        await sendAndWait("approve", () =>
+          writeContractAsync({ chainId, address: USDC_ADDRESS, abi: USDC_ABI, functionName: "approve", args: [CONFIDENTIAL_USDC_ADDRESS, amountRaw] })
+        );
 
-      await sendAndWait("shield", () =>
-        writeContractAsync({ chainId, address: CONFIDENTIAL_USDC_ADDRESS, abi: CONFIDENTIAL_USDC_ABI, functionName: "shield", args: [amountRaw] })
-      );
+        await sendAndWait("shield", () =>
+          writeContractAsync({ chainId, address: CONFIDENTIAL_USDC_ADDRESS, abi: CONFIDENTIAL_USDC_ABI, functionName: "shield", args: [amountRaw] })
+        );
+      }
 
       const expiry = BigInt(Math.floor(Date.now() / 1000) + 3600);
       await sendAndWait("operator", () =>
@@ -1173,7 +1192,7 @@ export default function BountyPage() {
 
                   {/* Amount */}
                   <div>
-                    <label className="block text-xs font-medium text-blue-300/50 mb-1">Reward (USDC)</label>
+                    <label className="block text-xs font-medium text-blue-300/50 mb-1">Reward ({payWithCusdc ? "cUSDC" : "USDC"})</label>
                     <div className="relative">
                       <input
                         type="number"
@@ -1183,7 +1202,7 @@ export default function BountyPage() {
                         placeholder="100.00"
                         className="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white placeholder:text-blue-300/20 focus:outline-none focus:border-cyan-500/40 font-mono text-sm pr-16"
                       />
-                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-blue-300/30 font-semibold">USDC</span>
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-blue-300/30 font-semibold">{payWithCusdc ? "cUSDC" : "USDC"}</span>
                     </div>
                   </div>
 
@@ -1262,7 +1281,94 @@ export default function BountyPage() {
                   <p className="text-xs text-blue-300/30 mt-1">The reward amount is fully encrypted on-chain</p>
                 </div>
               )}
-              <button onClick={handleCreateBounty} disabled={createStep === "running" || fheLoading || !repoOwner || !repoName || !issueNumber || !bountyAmount} className="w-full py-3 rounded-xl font-bold text-sm bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:from-cyan-400 hover:to-blue-500 disabled:opacity-40 transition-all">
+              {/* Decrypt cUSDC prompt */}
+              {mayHaveCusdc && !hasCusdc && (
+                <div className="p-2.5 rounded-xl bg-purple-500/[0.06] border border-purple-500/15 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <svg className="w-3.5 h-3.5 text-purple-400/60 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                    <p className="text-purple-300/70 text-xs">You have encrypted cUSDC — decrypt to pay directly with it</p>
+                  </div>
+                  <button
+                    onClick={decrypt}
+                    disabled={!canDecrypt || decrypting}
+                    className="shrink-0 text-[10px] px-2.5 py-1.5 rounded-lg bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 disabled:opacity-40 transition-all font-semibold"
+                  >
+                    {decrypting ? "Decrypting..." : "Decrypt"}
+                  </button>
+                </div>
+              )}
+
+              {/* Pay with USDC / cUSDC toggle */}
+              {hasCusdc && (
+                <div className="space-y-2">
+                  <label className="block text-xs font-medium text-blue-300/50">Pay with</label>
+                  <div className="flex rounded-xl overflow-hidden border border-white/[0.08]">
+                    <button
+                      onClick={() => setPayWithCusdc(false)}
+                      className={`flex-1 py-2 text-xs font-semibold transition-all ${!payWithCusdc ? "bg-cyan-500/15 text-cyan-300 border-r border-cyan-500/25" : "bg-white/[0.02] text-blue-300/30 border-r border-white/[0.06] hover:text-white"}`}
+                    >
+                      USDC
+                    </button>
+                    <button
+                      onClick={() => setPayWithCusdc(true)}
+                      className={`flex-1 py-2 text-xs font-semibold transition-all ${payWithCusdc ? "bg-purple-500/15 text-purple-300" : "bg-white/[0.02] text-blue-300/30 hover:text-white"}`}
+                    >
+                      cUSDC (encrypted)
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* cUSDC balance info + decrypt */}
+              {payWithCusdc && (
+                <div className="p-2.5 rounded-xl bg-purple-500/10 border border-purple-500/20 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <svg className="w-3.5 h-3.5 text-purple-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                      <span className="text-purple-300 text-xs">cUSDC balance: <span className="font-mono font-bold">{cusdcFormatted}</span></span>
+                    </div>
+                    {cusdcBalance === null && (
+                      <button
+                        onClick={decrypt}
+                        disabled={!canDecrypt || decrypting}
+                        className="text-[10px] px-2 py-1 rounded-lg bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 disabled:opacity-40 transition-all font-semibold"
+                      >
+                        {decrypting ? "Decrypting..." : "Decrypt balance"}
+                      </button>
+                    )}
+                  </div>
+                  {decryptMsg && <p className="text-[10px] text-purple-300/50">{decryptMsg}</p>}
+                  {decryptError && <p className="text-[10px] text-red-400">{decryptError}</p>}
+                  <p className="text-[10px] text-purple-300/40">Approve &amp; shield steps will be skipped</p>
+                  {/* cUSDC insufficient balance */}
+                  {cusdcBalance !== null && bountyAmount && parseUnits(bountyAmount || "0", 6) > cusdcBalance && (
+                    <div className="flex items-center gap-2 pt-1">
+                      <svg className="w-3.5 h-3.5 text-red-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                      <p className="text-red-400 text-xs">Insufficient cUSDC — you have {cusdcFormatted} but need {bountyAmount}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* USDC insufficient balance */}
+              {!payWithCusdc && !!bountyAmount && usdcBalance !== undefined && parseUnits(bountyAmount || "0", 6) > (usdcBalance as bigint) && (
+                <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 flex items-center gap-2">
+                  <svg className="w-4 h-4 text-red-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                  <div>
+                    <p className="text-red-400 text-xs font-semibold">Insufficient USDC balance</p>
+                    <p className="text-red-400/50 text-[10px]">You have {(Number(usdcBalance as bigint) / 1e6).toFixed(2)} USDC but need {bountyAmount} USDC</p>
+                  </div>
+                </div>
+              )}
+              <button
+                onClick={handleCreateBounty}
+                disabled={
+                  createStep === "running" || fheLoading || !repoOwner || !repoName || !issueNumber || !bountyAmount
+                  || (!payWithCusdc && !!bountyAmount && usdcBalance !== undefined && parseUnits(bountyAmount || "0", 6) > (usdcBalance as bigint))
+                  || (payWithCusdc && cusdcBalance !== null && !!bountyAmount && parseUnits(bountyAmount || "0", 6) > cusdcBalance)
+                }
+                className="w-full py-3 rounded-xl font-bold text-sm bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:from-cyan-400 hover:to-blue-500 disabled:opacity-40 transition-all"
+              >
                 {createStep === "done" ? "Create Another" : createStep === "running" ? "Processing..." : fheLoading ? "Loading FHE..." : "Create Bounty"}
               </button>
             </div>
