@@ -161,6 +161,21 @@ export default function BountyPage() {
   const [claimResult, setClaimResult] = useState<{ success: boolean; message: string } | null>(null);
   const claimBountyIdRef = useRef<string>("");
 
+  // --- Auto-detect claimable bounties ---
+  interface ClaimableBounty {
+    bountyId: number;
+    prNumber: number;
+    prTitle: string;
+    prUrl: string;
+    mergedAt: string;
+    repoOwner: string;
+    repoName: string;
+    issueNumber: number;
+  }
+  const [claimableBounties, setClaimableBounties] = useState<ClaimableBounty[]>([]);
+  const [loadingClaimable, setLoadingClaimable] = useState(false);
+  const [showManualClaim, setShowManualClaim] = useState(false);
+
   // --- Browse ---
   const [bounties, setBounties] = useState<BountyInfo[]>([]);
   const [loadingBounties, setLoadingBounties] = useState(false);
@@ -224,6 +239,31 @@ export default function BountyPage() {
       }
     });
   }, [bounties, fetchIssueInfo]);
+
+  // Auto-detect claimable bounties when on claim tab
+  useEffect(() => {
+    if (tab !== "claim" || !session || !isRegisteredOnChain) return;
+    const activeBounties = bounties.filter((b) => b.status === 0);
+    if (activeBounties.length === 0) return;
+
+    setLoadingClaimable(true);
+    fetch("/api/github/claimable-prs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        bounties: activeBounties.map((b) => ({
+          id: b.id,
+          repoOwner: b.repoOwner,
+          repoName: b.repoName,
+          issueNumber: b.issueNumber,
+        })),
+      }),
+    })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data) => setClaimableBounties(data))
+      .catch(() => setClaimableBounties([]))
+      .finally(() => setLoadingClaimable(false));
+  }, [tab, session, isRegisteredOnChain, bounties]);
 
   // Poll for verification status while pending (Chainlink takes 1-2 min)
   useEffect(() => {
@@ -452,30 +492,7 @@ export default function BountyPage() {
   };
 
   const handleClaim = async () => {
-    if (!claimBountyId || !claimPrNumber || !publicClient) return;
-    setClaimPending(true);
-    setClaimResult(null);
-
-    const steps: TxStep[] = [
-      { id: "claim", label: "Submit Claim", description: `Claim bounty #${claimBountyId} with PR #${claimPrNumber}`, status: "pending" },
-    ];
-    setTxSteps(steps);
-    setTxModalTitle("Claim Bounty");
-    setTxModalIcon("\u{1F4E8}");
-    setTxModalOpen(true);
-
-    try {
-      await sendAndWait("claim", () =>
-        writeContractAsync({ chainId, gas: 5_000_000n, address: GHOST_BOUNTY_ADDRESS, abi: GHOST_BOUNTY_ABI, functionName: "claimBounty", args: [BigInt(claimBountyId), BigInt(claimPrNumber)] })
-      );
-      claimBountyIdRef.current = claimBountyId;
-      setWaitingClaimVerification(true);
-      setClaimPending(false);
-    } catch (e: any) {
-      setTxSteps((prev) => prev.map((s) => s.status !== "done" ? { ...s, status: "error" as const, error: e?.shortMessage || e?.message || "Transaction rejected" } : s));
-      setClaimResult({ success: false, message: "Transaction failed. Please check bounty ID and PR number." });
-      setClaimPending(false);
-    }
+    await handleClaimWithValues(claimBountyId, claimPrNumber);
   };
 
   const handleExecuteClaim = async (bountyId: number) => {
@@ -536,6 +553,44 @@ export default function BountyPage() {
     setIssueNumber(String(issue.number));
     setShowIssuePicker(false);
     setIssueSearch("");
+  };
+
+  // One-click claim from auto-detected list
+  const handleAutoClaimBounty = (cb: ClaimableBounty) => {
+    setClaimBountyId(String(cb.bountyId));
+    setClaimPrNumber(String(cb.prNumber));
+    setClaimResult(null);
+    // Trigger claim immediately
+    setTimeout(() => {
+      handleClaimWithValues(String(cb.bountyId), String(cb.prNumber));
+    }, 0);
+  };
+
+  const handleClaimWithValues = async (bountyId: string, prNumber: string) => {
+    if (!bountyId || !prNumber || !publicClient) return;
+    setClaimPending(true);
+    setClaimResult(null);
+
+    const steps: TxStep[] = [
+      { id: "claim", label: "Submit Claim", description: `Claim bounty #${bountyId} with PR #${prNumber}`, status: "pending" },
+    ];
+    setTxSteps(steps);
+    setTxModalTitle("Claim Bounty");
+    setTxModalIcon("\u{1F4E8}");
+    setTxModalOpen(true);
+
+    try {
+      await sendAndWait("claim", () =>
+        writeContractAsync({ chainId, gas: 5_000_000n, address: GHOST_BOUNTY_ADDRESS, abi: GHOST_BOUNTY_ABI, functionName: "claimBounty", args: [BigInt(bountyId), BigInt(prNumber)] })
+      );
+      claimBountyIdRef.current = bountyId;
+      setWaitingClaimVerification(true);
+      setClaimPending(false);
+    } catch (e: any) {
+      setTxSteps((prev) => prev.map((s) => s.status !== "done" ? { ...s, status: "error" as const, error: e?.shortMessage || e?.message || "Transaction rejected" } : s));
+      setClaimResult({ success: false, message: "Transaction failed. Please check bounty ID and PR number." });
+      setClaimPending(false);
+    }
   };
 
   // Handle "Claim this bounty" from browse tab
@@ -1077,52 +1132,70 @@ export default function BountyPage() {
                 </div>
               )}
 
-              {/* Active bounties quick-select */}
-              {bounties.filter((b) => b.status === 0).length > 0 && (
-                <div className="space-y-2">
-                  <label className="block text-xs font-medium text-blue-300/50">Select a bounty to claim</label>
-                  <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                    {bounties.filter((b) => b.status === 0).map((b) => {
-                      const infoKey = `${b.repoOwner}/${b.repoName}#${b.issueNumber}`;
-                      const info = issueInfoCache[infoKey];
-                      const isSelected = claimBountyId === String(b.id);
-                      return (
-                        <button
-                          key={b.id}
-                          onClick={() => setClaimBountyId(String(b.id))}
-                          className={`w-full p-3 rounded-xl text-left transition-all border ${isSelected ? "bg-cyan-500/10 border-cyan-500/25" : "bg-white/[0.02] border-white/[0.06] hover:border-white/[0.1]"}`}
-                        >
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2 min-w-0">
-                              <span className={`text-xs font-mono ${isSelected ? "text-cyan-300" : "text-blue-300/30"}`}>#{b.id}</span>
-                              <span className={`text-xs font-mono ${isSelected ? "text-cyan-400" : "text-cyan-400/50"}`}>{b.repoOwner}/{b.repoName}#{b.issueNumber}</span>
+              {/* Auto-detected claimable bounties */}
+              {session && isRegisteredOnChain && (
+                <>
+                  {loadingClaimable && (
+                    <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.06] flex items-center gap-3">
+                      <div className="w-4 h-4 rounded-full border-2 border-cyan-400 border-t-transparent animate-spin shrink-0" />
+                      <p className="text-blue-300/50 text-xs">Scanning your merged PRs for claimable bounties...</p>
+                    </div>
+                  )}
+
+                  {!loadingClaimable && claimableBounties.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                        <label className="block text-xs font-semibold text-green-400">
+                          {claimableBounties.length} bounty{claimableBounties.length > 1 ? "ies" : ""} ready to claim
+                        </label>
+                      </div>
+                      <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                        {claimableBounties.map((cb) => {
+                          const infoKey = `${cb.repoOwner}/${cb.repoName}#${cb.issueNumber}`;
+                          const info = issueInfoCache[infoKey];
+                          return (
+                            <div
+                              key={`${cb.bountyId}-${cb.prNumber}`}
+                              className="p-3 rounded-xl bg-green-500/5 border border-green-500/15 space-y-2"
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs font-mono text-green-300">Bounty #{cb.bountyId}</span>
+                                    <span className="text-[10px] text-blue-300/30">{cb.repoOwner}/{cb.repoName}#{cb.issueNumber}</span>
+                                  </div>
+                                  {info?.title && <p className="text-xs text-white/70 mt-0.5 truncate">{info.title}</p>}
+                                  <div className="flex items-center gap-1.5 mt-1">
+                                    <svg className="w-3 h-3 text-purple-400/60 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                                    </svg>
+                                    <span className="text-[10px] text-purple-400/60 truncate">PR #{cb.prNumber}: {cb.prTitle}</span>
+                                  </div>
+                                </div>
+                                <button
+                                  onClick={() => handleAutoClaimBounty(cb)}
+                                  disabled={claimPending || waitingClaimVerification}
+                                  className="shrink-0 px-4 py-2 rounded-lg text-xs font-bold bg-gradient-to-r from-green-500 to-emerald-600 text-white hover:from-green-400 hover:to-emerald-500 disabled:opacity-40 transition-all"
+                                >
+                                  Claim
+                                </button>
+                              </div>
                             </div>
-                            {isSelected && (
-                              <svg className="w-4 h-4 text-cyan-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
-                            )}
-                          </div>
-                          {info?.title && <p className={`text-xs mt-1 truncate ${isSelected ? "text-white/80" : "text-blue-300/30"}`}>{info.title}</p>}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {!loadingClaimable && claimableBounties.length === 0 && (
+                    <div className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.06] text-center">
+                      <p className="text-blue-300/40 text-xs">No claimable bounties found.</p>
+                      <p className="text-blue-300/25 text-[10px] mt-1">Merge a PR that references a bounty issue to see it here.</p>
+                    </div>
+                  )}
+                </>
               )}
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-blue-300/50 mb-1">Bounty ID</label>
-                  <input type="number" value={claimBountyId} onChange={(e) => setClaimBountyId(e.target.value)} placeholder="0" className="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white placeholder:text-blue-300/20 focus:outline-none focus:border-cyan-500/40 font-mono text-sm" />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-blue-300/50 mb-1">PR Number</label>
-                  <input type="number" value={claimPrNumber} onChange={(e) => setClaimPrNumber(e.target.value)} placeholder="123" className="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white placeholder:text-blue-300/20 focus:outline-none focus:border-cyan-500/40 font-mono text-sm" />
-                </div>
-              </div>
-
-              <button onClick={handleClaim} disabled={claimPending || waitingClaimVerification || !claimBountyId || !claimPrNumber || !isRegisteredOnChain} className="w-full py-3 rounded-xl font-bold text-sm bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:from-cyan-400 hover:to-blue-500 disabled:opacity-40 transition-all">
-                {claimPending ? "Sending..." : waitingClaimVerification ? "Chainlink verifying PR..." : "Claim Bounty"}
-              </button>
 
               {waitingClaimVerification && (
                 <div className="p-3 rounded-xl bg-amber-500/5 border border-amber-500/15">
@@ -1163,13 +1236,44 @@ export default function BountyPage() {
                 </div>
               )}
 
+              {/* Manual claim fallback */}
+              <div className="pt-2 border-t border-white/[0.04]">
+                <button
+                  onClick={() => setShowManualClaim(!showManualClaim)}
+                  className="flex items-center gap-2 text-[10px] text-blue-300/30 hover:text-blue-300/50 transition-colors"
+                >
+                  <svg className={`w-3 h-3 transition-transform ${showManualClaim ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                  </svg>
+                  Manual claim (enter bounty ID & PR number)
+                </button>
+
+                {showManualClaim && (
+                  <div className="mt-3 space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-blue-300/50 mb-1">Bounty ID</label>
+                        <input type="number" value={claimBountyId} onChange={(e) => setClaimBountyId(e.target.value)} placeholder="0" className="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white placeholder:text-blue-300/20 focus:outline-none focus:border-cyan-500/40 font-mono text-sm" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-blue-300/50 mb-1">PR Number</label>
+                        <input type="number" value={claimPrNumber} onChange={(e) => setClaimPrNumber(e.target.value)} placeholder="123" className="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white placeholder:text-blue-300/20 focus:outline-none focus:border-cyan-500/40 font-mono text-sm" />
+                      </div>
+                    </div>
+                    <button onClick={handleClaim} disabled={claimPending || waitingClaimVerification || !claimBountyId || !claimPrNumber || !isRegisteredOnChain} className="w-full py-3 rounded-xl font-bold text-sm bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:from-cyan-400 hover:to-blue-500 disabled:opacity-40 transition-all">
+                      {claimPending ? "Sending..." : waitingClaimVerification ? "Chainlink verifying PR..." : "Claim Bounty"}
+                    </button>
+                  </div>
+                )}
+              </div>
+
               <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.04]">
                 <h3 className="text-xs font-semibold text-blue-300/50 mb-2">How it works</h3>
                 <ol className="text-xs text-blue-300/30 space-y-1 list-decimal list-inside">
-                  <li>Select a bounty and enter your merged PR number</li>
-                  <li>Chainlink verifies the PR is merged and references the issue</li>
-                  <li>If verified, cUSDC is automatically transferred to your wallet</li>
-                  <li>Go to <a href="/shield" className="text-cyan-400 hover:text-cyan-300 underline">Shield</a> page to convert to USDC</li>
+                  <li>Merge a PR that references a bounty issue (e.g. &quot;fixes #12&quot;)</li>
+                  <li>Your claimable bounties appear here automatically</li>
+                  <li>Click &quot;Claim&quot; and Chainlink verifies your PR on-chain</li>
+                  <li>cUSDC is transferred to your wallet. Go to <a href="/shield" className="text-cyan-400 hover:text-cyan-300 underline">Shield</a> to convert to USDC</li>
                 </ol>
               </div>
             </div>
