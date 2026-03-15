@@ -807,12 +807,12 @@ export default function BountyPage() {
             Loading GitHub session...
           </div>
         ) : !session ? (
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
             <div>
               <p className="text-white text-sm font-semibold">Connect your GitHub</p>
               <p className="text-blue-300/40 text-xs mt-0.5">Required to claim bounties and auto-fill repos/issues</p>
             </div>
-            <button onClick={() => { playSfx("connect"); signIn("github"); }} className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/[0.08] hover:bg-white/[0.12] border border-white/[0.1] text-white text-sm font-semibold transition-all">
+            <button onClick={() => { playSfx("connect"); signIn("github"); }} className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/[0.08] hover:bg-white/[0.12] border border-white/[0.1] text-white text-sm font-semibold transition-all w-full sm:w-auto justify-center sm:justify-start">
               <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" /></svg>
               Sign in with GitHub
             </button>
@@ -884,18 +884,18 @@ export default function BountyPage() {
                         <li>Paste it below and click Verify</li>
                       </ol>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex flex-col sm:flex-row gap-2">
                       <input
                         type="text"
                         value={gistId}
                         onChange={(e) => setGistId(e.target.value)}
                         placeholder="Gist ID or full URL"
-                        className="flex-1 px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white placeholder:text-blue-300/20 focus:outline-none focus:border-cyan-500/40 font-mono text-sm"
+                        className="flex-1 px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white placeholder:text-blue-300/20 focus:outline-none focus:border-cyan-500/40 font-mono text-xs sm:text-sm"
                       />
                       <button
                         onClick={handleRegisterOnChain}
                         disabled={registerPending || !githubUser || !gistId.trim()}
-                        className="px-4 py-2 rounded-xl text-sm font-semibold bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20 border border-cyan-500/20 disabled:opacity-40 transition-all"
+                        className="px-4 py-2 rounded-xl text-sm font-semibold bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20 border border-cyan-500/20 disabled:opacity-40 transition-all shrink-0"
                       >
                         {registerPending ? "Sending..." : "Verify"}
                       </button>
@@ -909,11 +909,11 @@ export default function BountyPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 p-1 rounded-xl bg-white/[0.03] border border-white/[0.04]">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 p-1 rounded-xl bg-white/[0.03] border border-white/[0.04]">
         {tabs.map((t) => (
-          <button key={t.id} onClick={() => { playSfx("tab"); setTab(t.id); }} className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-all flex items-center justify-center gap-2 ${tab === t.id ? "bg-cyan-500/15 text-cyan-300 border border-cyan-500/20" : "text-blue-300/40 hover:text-white hover:bg-white/5 border border-transparent"}`}>
+          <button key={t.id} onClick={() => { playSfx("tab"); setTab(t.id); }} className={`py-2 text-xs sm:text-sm font-semibold rounded-lg transition-all flex items-center justify-center gap-1.5 sm:gap-2 ${tab === t.id ? "bg-cyan-500/15 text-cyan-300 border border-cyan-500/20" : "text-blue-300/40 hover:text-white hover:bg-white/5 border border-transparent"}`}>
             {t.icon}
-            {t.label}
+            <span className="truncate">{t.label}</span>
           </button>
         ))}
       </div>
@@ -923,7 +923,7 @@ export default function BountyPage() {
           <p className="text-blue-300/50">Connect your wallet to use GhostBounty</p>
         </div>
       ) : (
-        <div className="panel-military rounded-2xl p-6 border border-amber-900/20 space-y-5">
+        <div className="panel-military rounded-2xl p-4 sm:p-6 border border-amber-900/20 space-y-5">
 
           {/* BROWSE */}
           {tab === "browse" && (() => {
@@ -952,7 +952,7 @@ export default function BountyPage() {
               </div>
 
               {/* Filter tabs */}
-              <div className="flex gap-1 p-1 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 p-1 rounded-xl bg-white/[0.02] border border-white/[0.04]">
                 {([
                   { key: "all", label: "All" },
                   { key: "active", label: "Active" },
@@ -962,7 +962,7 @@ export default function BountyPage() {
                   <button
                     key={f.key}
                     onClick={() => { playSfx("click"); setStatusFilter(f.key); }}
-                    className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-medium transition-all flex items-center justify-center gap-1.5 ${
+                    className={`py-1.5 px-2 rounded-lg text-xs font-medium transition-all flex items-center justify-center gap-1.5 ${
                       statusFilter === f.key
                         ? "bg-white/[0.08] text-white shadow-sm"
                         : "text-blue-300/30 hover:text-white/60"
@@ -1011,26 +1011,26 @@ export default function BountyPage() {
                         b.status === 4 ? "bg-white/[0.01] border-white/[0.04] opacity-60" : "bg-white/[0.02] border-white/[0.06] hover:border-white/[0.12]"
                       }`}>
                         {/* Card header */}
-                        <div className="px-4 pt-3 pb-2 flex items-start justify-between gap-3">
+                        <div className="px-3 sm:px-4 pt-3 pb-2 flex items-start justify-between gap-2 sm:gap-3">
                           <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-0.5">
+                            <div className="flex items-center gap-1.5 sm:gap-2 mb-0.5 flex-wrap">
                               <span className="text-blue-300/25 font-mono text-[10px]">#{b.id}</span>
-                              <a href={`https://github.com/${b.repoOwner}/${b.repoName}/issues/${b.issueNumber}`} target="_blank" rel="noopener noreferrer" className="text-cyan-400/80 hover:text-cyan-300 text-[11px] font-mono">
+                              <a href={`https://github.com/${b.repoOwner}/${b.repoName}/issues/${b.issueNumber}`} target="_blank" rel="noopener noreferrer" className="text-cyan-400/80 hover:text-cyan-300 text-[10px] sm:text-[11px] font-mono truncate max-w-[200px] sm:max-w-none">
                                 {b.repoOwner}/{b.repoName}#{b.issueNumber}
                               </a>
                             </div>
                             {info?.title && (
-                              <p className="text-white text-sm font-medium leading-snug truncate">{info.title}</p>
+                              <p className="text-white text-xs sm:text-sm font-medium leading-snug truncate">{info.title}</p>
                             )}
                           </div>
-                          <span className={`shrink-0 text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border ${STATUS_BG[b.status]} ${STATUS_COLORS[b.status]}`}>
+                          <span className={`shrink-0 text-[8px] sm:text-[9px] font-bold uppercase tracking-wider px-1.5 sm:px-2 py-0.5 rounded-md border ${STATUS_BG[b.status]} ${STATUS_COLORS[b.status]}`}>
                             {STATUS_LABELS[b.status]}
                           </span>
                         </div>
 
                         {/* Labels */}
                         {info?.labels && info.labels.length > 0 && (
-                          <div className="px-4 pb-2 flex flex-wrap gap-1">
+                          <div className="px-3 sm:px-4 pb-2 flex flex-wrap gap-1">
                             {info.labels.slice(0, 5).map((l) => (
                               <span key={l.name} className="text-[9px] px-1.5 py-0.5 rounded-full border font-medium" style={{ borderColor: `#${l.color}30`, color: `#${l.color}`, backgroundColor: `#${l.color}10` }}>
                                 {l.name}
@@ -1041,10 +1041,10 @@ export default function BountyPage() {
 
                         {/* Linked PRs */}
                         {prs.length > 0 && (
-                          <div className="px-4 pb-2 space-y-1">
+                          <div className="px-3 sm:px-4 pb-2 space-y-1">
                             {prs.map((pr) => (
                               <a key={pr.number} href={pr.url} target="_blank" rel="noopener noreferrer"
-                                className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] transition-all hover:bg-white/[0.03] ${
+                                className={`flex items-center gap-1.5 px-1.5 sm:px-2 py-1 rounded-md text-[10px] sm:text-[11px] transition-all hover:bg-white/[0.03] ${
                                   pr.merged ? "text-purple-400/80" : pr.state === "open" ? "text-green-400/80" : "text-red-400/80"
                                 }`}
                               >
@@ -1055,9 +1055,10 @@ export default function BountyPage() {
                                     <path d="M1.5 3.25a2.25 2.25 0 113 2.122v5.256a2.251 2.251 0 11-1.5 0V5.372A2.25 2.25 0 011.5 3.25zm5.677-.177L9.573.677A.25.25 0 0110 .854V2.5h1A2.5 2.5 0 0113.5 5v5.628a2.251 2.251 0 11-1.5 0V5a1 1 0 00-1-1h-1v1.646a.25.25 0 01-.427.177L7.177 3.427a.25.25 0 010-.354zM3.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm0 9.5a.75.75 0 100 1.5.75.75 0 000-1.5zm8.25.75a.75.75 0 10-1.5 0 .75.75 0 001.5 0z" />
                                   )}
                                 </svg>
-                                <span className="font-mono">#{pr.number}</span>
-                                <span className="text-white/50 truncate">{pr.title}</span>
-                                {pr.authorAvatar && <img src={pr.authorAvatar} alt="" className="w-3.5 h-3.5 rounded-full ml-auto shrink-0" />}
+                                <span className="font-mono shrink-0">#{pr.number}</span>
+                                <span className="text-white/50 truncate hidden sm:inline">{pr.title}</span>
+                                <span className="text-white/50 truncate sm:hidden max-w-[120px]">{pr.title}</span>
+                                {pr.authorAvatar && <img src={pr.authorAvatar} alt="" className="w-3.5 h-3.5 rounded-full ml-auto shrink-0 hidden sm:block" />}
                                 <span className={`text-[8px] font-bold uppercase px-1 py-0.5 rounded shrink-0 ${
                                   pr.merged ? "bg-purple-500/15 text-purple-300" : pr.state === "open" ? "bg-green-500/15 text-green-300" : "bg-red-500/15 text-red-300"
                                 }`}>{pr.merged ? "Merged" : pr.state === "open" ? "Open" : "Closed"}</span>
@@ -1067,9 +1068,9 @@ export default function BountyPage() {
                         )}
 
                         {/* Footer: meta + actions */}
-                        <div className="px-4 py-2.5 bg-white/[0.01] border-t border-white/[0.04] flex items-center justify-between gap-3">
+                        <div className="px-3 sm:px-4 py-2 sm:py-2.5 bg-white/[0.01] border-t border-white/[0.04] flex flex-wrap items-center justify-between gap-2 sm:gap-3">
                           {/* Meta */}
-                          <div className="flex items-center gap-3 text-[10px] text-blue-300/25 min-w-0">
+                          <div className="flex items-center gap-2 sm:gap-3 text-[10px] text-blue-300/25 min-w-0 flex-wrap">
                             <span className="flex items-center gap-1 shrink-0">
                               {creatorGh ? (
                                 <a href={`https://github.com/${creatorGh}`} target="_blank" rel="noopener noreferrer" className="text-cyan-400/60 hover:text-cyan-300">@{creatorGh}</a>
@@ -1309,12 +1310,12 @@ export default function BountyPage() {
                   </div>
 
                   {/* Quick amounts */}
-                  <div className="flex gap-2">
+                  <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5 sm:gap-2">
                     {["25", "50", "100", "250", "500"].map((amt) => (
                       <button
                         key={amt}
                         onClick={() => { playSfx("click"); setBountyAmount(amt); }}
-                        className={`flex-1 py-1.5 rounded-lg text-xs font-mono transition-all border ${bountyAmount === amt ? "bg-cyan-500/15 text-cyan-300 border-cyan-500/25" : "bg-white/[0.02] text-blue-300/30 border-white/[0.04] hover:text-white hover:border-white/[0.1]"}`}
+                        className={`py-1.5 rounded-lg text-xs font-mono transition-all border ${bountyAmount === amt ? "bg-cyan-500/15 text-cyan-300 border-cyan-500/25" : "bg-white/[0.02] text-blue-300/30 border-white/[0.04] hover:text-white hover:border-white/[0.1]"}`}
                       >
                         ${amt}
                       </button>
@@ -1332,7 +1333,7 @@ export default function BountyPage() {
                       </p>
                     </div>
                   )}
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-medium text-blue-300/50 mb-1">Repo Owner</label>
                       <input type="text" value={repoOwner} onChange={(e) => setRepoOwner(e.target.value)} placeholder="ethereum" className="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white placeholder:text-blue-300/20 focus:outline-none focus:border-cyan-500/40 font-mono text-sm" />
@@ -1342,7 +1343,7 @@ export default function BountyPage() {
                       <input type="text" value={repoName} onChange={(e) => setRepoName(e.target.value)} placeholder="go-ethereum" className="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white placeholder:text-blue-300/20 focus:outline-none focus:border-cyan-500/40 font-mono text-sm" />
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-medium text-blue-300/50 mb-1">Issue #</label>
                       <input type="number" value={issueNumber} onChange={(e) => setIssueNumber(e.target.value)} placeholder="42" className="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white placeholder:text-blue-300/20 focus:outline-none focus:border-cyan-500/40 font-mono text-sm" />
@@ -1525,11 +1526,11 @@ export default function BountyPage() {
                               key={`${cb.bountyId}-${cb.prNumber}`}
                               className="p-3 rounded-xl bg-green-500/5 border border-green-500/15 space-y-2"
                             >
-                              <div className="flex items-start justify-between gap-2">
+                              <div className="flex flex-col sm:flex-row items-start justify-between gap-2">
                                 <div className="min-w-0 flex-1">
-                                  <div className="flex items-center gap-2">
+                                  <div className="flex items-center gap-2 flex-wrap">
                                     <span className="text-xs font-mono text-green-300">Bounty #{cb.bountyId}</span>
-                                    <span className="text-[10px] text-blue-300/30">{cb.repoOwner}/{cb.repoName}#{cb.issueNumber}</span>
+                                    <span className="text-[10px] text-blue-300/30 truncate">{cb.repoOwner}/{cb.repoName}#{cb.issueNumber}</span>
                                   </div>
                                   {info?.title && <p className="text-xs text-white/70 mt-0.5 truncate">{info.title}</p>}
                                   <div className="flex items-center gap-1.5 mt-1">
@@ -1542,7 +1543,7 @@ export default function BountyPage() {
                                 <button
                                   onClick={() => handleAutoClaimBounty(cb)}
                                   disabled={claimPending || waitingClaimVerification}
-                                  className="shrink-0 px-4 py-2 rounded-lg text-xs font-bold bg-gradient-to-r from-green-500 to-emerald-600 text-white hover:from-green-400 hover:to-emerald-500 disabled:opacity-40 transition-all"
+                                  className="shrink-0 px-4 py-2 rounded-lg text-xs font-bold bg-gradient-to-r from-green-500 to-emerald-600 text-white hover:from-green-400 hover:to-emerald-500 disabled:opacity-40 transition-all w-full sm:w-auto"
                                 >
                                   Claim
                                 </button>
@@ -1616,7 +1617,7 @@ export default function BountyPage() {
 
                 {showManualClaim && (
                   <div className="mt-3 space-y-3">
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
                         <label className="block text-xs font-medium text-blue-300/50 mb-1">Bounty ID</label>
                         <input type="number" value={claimBountyId} onChange={(e) => setClaimBountyId(e.target.value)} placeholder="0" className="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white placeholder:text-blue-300/20 focus:outline-none focus:border-cyan-500/40 font-mono text-sm" />
@@ -1670,12 +1671,12 @@ export default function BountyPage() {
             ) : (
               <>
                 {/* Filter tabs */}
-                <div className="flex gap-1 p-1 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+                <div className="grid grid-cols-3 gap-1 p-1 rounded-xl bg-white/[0.02] border border-white/[0.04]">
                   {filterDefs.map((f) => (
                     <button
                       key={f.key}
                       onClick={() => { playSfx("click"); setMyFilter(f.key); }}
-                      className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-medium transition-all flex items-center justify-center gap-1.5 ${
+                      className={`py-1.5 px-2 rounded-lg text-xs font-medium transition-all flex items-center justify-center gap-1.5 ${
                         myFilter === f.key
                           ? "bg-white/[0.08] text-white shadow-sm"
                           : "text-blue-300/30 hover:text-white/60"
@@ -1712,22 +1713,22 @@ export default function BountyPage() {
                           b.status === 4 ? "bg-white/[0.01] border-white/[0.04] opacity-60" : "bg-white/[0.02] border-white/[0.06] hover:border-white/[0.12]"
                         }`}>
                           {/* Header */}
-                          <div className="px-4 pt-3 pb-2 flex items-start justify-between gap-3">
+                          <div className="px-3 sm:px-4 pt-3 pb-2 flex items-start justify-between gap-2 sm:gap-3">
                             <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 mb-0.5">
+                              <div className="flex items-center gap-1.5 sm:gap-2 mb-0.5 flex-wrap">
                                 <span className="text-blue-300/25 font-mono text-[10px]">#{b.id}</span>
-                                <a href={`https://github.com/${b.repoOwner}/${b.repoName}/issues/${b.issueNumber}`} target="_blank" rel="noopener noreferrer" className="text-cyan-400/80 hover:text-cyan-300 text-[11px] font-mono">
+                                <a href={`https://github.com/${b.repoOwner}/${b.repoName}/issues/${b.issueNumber}`} target="_blank" rel="noopener noreferrer" className="text-cyan-400/80 hover:text-cyan-300 text-[10px] sm:text-[11px] font-mono truncate max-w-[200px] sm:max-w-none">
                                   {b.repoOwner}/{b.repoName}#{b.issueNumber}
                                 </a>
                               </div>
                               {info?.title && (
-                                <p className="text-white text-sm font-medium leading-snug truncate">{info.title}</p>
+                                <p className="text-white text-xs sm:text-sm font-medium leading-snug truncate">{info.title}</p>
                               )}
                             </div>
-                            <div className="flex items-center gap-2 shrink-0">
+                            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 flex-wrap justify-end">
                               {/* Amount */}
                               {decryptedAmounts[b.id] ? (
-                                <span className="text-green-400/80 font-mono text-xs font-bold">{decryptedAmounts[b.id]} USDC</span>
+                                <span className="text-green-400/80 font-mono text-[10px] sm:text-xs font-bold">{decryptedAmounts[b.id]} USDC</span>
                               ) : canReveal ? (
                                 <button
                                   onClick={() => handleDecryptBountyAmount(b.id)}
@@ -1737,7 +1738,7 @@ export default function BountyPage() {
                                   {decryptingBounty === b.id ? "..." : "Reveal"}
                                 </button>
                               ) : null}
-                              <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border ${STATUS_BG[b.status]} ${STATUS_COLORS[b.status]}`}>
+                              <span className={`text-[8px] sm:text-[9px] font-bold uppercase tracking-wider px-1.5 sm:px-2 py-0.5 rounded-md border ${STATUS_BG[b.status]} ${STATUS_COLORS[b.status]}`}>
                                 {STATUS_LABELS[b.status]}
                               </span>
                             </div>
@@ -1745,7 +1746,7 @@ export default function BountyPage() {
 
                           {/* Labels */}
                           {info?.labels && info.labels.length > 0 && (
-                            <div className="px-4 pb-2 flex flex-wrap gap-1">
+                            <div className="px-3 sm:px-4 pb-2 flex flex-wrap gap-1">
                               {info.labels.slice(0, 5).map((l) => (
                                 <span key={l.name} className="text-[9px] px-1.5 py-0.5 rounded-full border font-medium" style={{ borderColor: `#${l.color}30`, color: `#${l.color}`, backgroundColor: `#${l.color}10` }}>
                                   {l.name}
@@ -1756,10 +1757,10 @@ export default function BountyPage() {
 
                           {/* PRs */}
                           {prs.length > 0 && (
-                            <div className="px-4 pb-2 space-y-1">
+                            <div className="px-3 sm:px-4 pb-2 space-y-1">
                               {prs.map((pr) => (
                                 <a key={pr.number} href={pr.url} target="_blank" rel="noopener noreferrer"
-                                  className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] transition-all hover:bg-white/[0.03] ${
+                                  className={`flex items-center gap-1.5 px-1.5 sm:px-2 py-1 rounded-md text-[10px] sm:text-[11px] transition-all hover:bg-white/[0.03] ${
                                     pr.merged ? "text-purple-400/80" : pr.state === "open" ? "text-green-400/80" : "text-red-400/80"
                                   }`}
                                 >
@@ -1770,9 +1771,10 @@ export default function BountyPage() {
                                       <path d="M1.5 3.25a2.25 2.25 0 113 2.122v5.256a2.251 2.251 0 11-1.5 0V5.372A2.25 2.25 0 011.5 3.25zm5.677-.177L9.573.677A.25.25 0 0110 .854V2.5h1A2.5 2.5 0 0113.5 5v5.628a2.251 2.251 0 11-1.5 0V5a1 1 0 00-1-1h-1v1.646a.25.25 0 01-.427.177L7.177 3.427a.25.25 0 010-.354zM3.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm0 9.5a.75.75 0 100 1.5.75.75 0 000-1.5zm8.25.75a.75.75 0 10-1.5 0 .75.75 0 001.5 0z" />
                                     )}
                                   </svg>
-                                  <span className="font-mono">#{pr.number}</span>
-                                  <span className="text-white/50 truncate">{pr.title}</span>
-                                  {pr.authorAvatar && <img src={pr.authorAvatar} alt="" className="w-3.5 h-3.5 rounded-full ml-auto shrink-0" />}
+                                  <span className="font-mono shrink-0">#{pr.number}</span>
+                                  <span className="text-white/50 truncate hidden sm:inline">{pr.title}</span>
+                                  <span className="text-white/50 truncate sm:hidden max-w-[120px]">{pr.title}</span>
+                                  {pr.authorAvatar && <img src={pr.authorAvatar} alt="" className="w-3.5 h-3.5 rounded-full ml-auto shrink-0 hidden sm:block" />}
                                   <span className={`text-[8px] font-bold uppercase px-1 py-0.5 rounded shrink-0 ${
                                     pr.merged ? "bg-purple-500/15 text-purple-300" : pr.state === "open" ? "bg-green-500/15 text-green-300" : "bg-red-500/15 text-red-300"
                                   }`}>{pr.merged ? "Merged" : pr.state === "open" ? "Open" : "Closed"}</span>
@@ -1782,7 +1784,7 @@ export default function BountyPage() {
                           )}
 
                           {/* Footer */}
-                          <div className="px-4 py-2 bg-white/[0.01] border-t border-white/[0.04] flex items-center justify-between gap-3">
+                          <div className="px-3 sm:px-4 py-2 bg-white/[0.01] border-t border-white/[0.04] flex flex-wrap items-center justify-between gap-2 sm:gap-3">
                             <div className="flex items-center gap-3 text-[10px] text-blue-300/25">
                               <span>{new Date(b.createdAt * 1000).toLocaleDateString()}</span>
                               {claimerGh && b.status === 3 && (
