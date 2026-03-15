@@ -4,7 +4,7 @@
 
 Ghost Bounty lets project owners post encrypted bounties on GitHub issues. Developers solve issues, submit PRs, and claim rewards — all verified on-chain via Chainlink Functions. Bounty amounts are hidden using Zama's FHEVM, ensuring complete payment privacy.
 
-https://github.com/jecombe/ghost_bounty/raw/main/ghost_bounty_demo.mp4
+[![Ghost Bounty Demo](https://img.youtube.com/vi/0FYABNZipuU/maxresdefault.jpg)](https://youtu.be/0FYABNZipuU)
 
 ---
 
