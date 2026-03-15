@@ -236,27 +236,52 @@ function playSfx(ctx: AudioContext, dest: GainNode, type: SfxType) {
     }
 
     case "reveal": {
-      // Mysterious unlock - descending shimmer with harmonics
-      const osc = ctx.createOscillator();
-      osc.type = "sine";
-      osc.frequency.setValueAtTime(1400, t);
-      osc.frequency.exponentialRampToValueAtTime(600, t + 0.25);
-      const osc2 = ctx.createOscillator();
-      osc2.type = "triangle";
-      osc2.frequency.setValueAtTime(2100, t);
-      osc2.frequency.exponentialRampToValueAtTime(900, t + 0.3);
-      const g = ctx.createGain();
-      g.gain.setValueAtTime(0.1, t);
-      g.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
-      const g2 = ctx.createGain();
-      g2.gain.setValueAtTime(0.05, t);
-      g2.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
-      osc.connect(g).connect(dest);
-      osc2.connect(g2).connect(dest);
-      osc.start(t);
-      osc.stop(t + 0.4);
-      osc2.start(t);
-      osc2.stop(t + 0.35);
+      // Padlock unlock — metallic clunk + spring release + open click
+
+      // 1. Metallic clunk (key turning) — noise burst through bandpass
+      const bufLen = Math.floor(ctx.sampleRate * 0.06);
+      const noiseBuf = ctx.createBuffer(1, bufLen, ctx.sampleRate);
+      const noiseData = noiseBuf.getChannelData(0);
+      for (let i = 0; i < bufLen; i++) noiseData[i] = Math.random() * 2 - 1;
+      const noise = ctx.createBufferSource();
+      noise.buffer = noiseBuf;
+      const bp = ctx.createBiquadFilter();
+      bp.type = "bandpass";
+      bp.frequency.setValueAtTime(3000, t);
+      bp.Q.value = 8;
+      const ng = ctx.createGain();
+      ng.gain.setValueAtTime(0.18, t);
+      ng.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+      noise.connect(bp).connect(ng).connect(dest);
+      noise.start(t);
+      noise.stop(t + 0.06);
+
+      // 2. Spring release (shackle popping) — quick descending metallic tone
+      const spring = ctx.createOscillator();
+      spring.type = "square";
+      spring.frequency.setValueAtTime(1800, t + 0.07);
+      spring.frequency.exponentialRampToValueAtTime(400, t + 0.15);
+      const springLp = ctx.createBiquadFilter();
+      springLp.type = "lowpass";
+      springLp.frequency.value = 3500;
+      const sg = ctx.createGain();
+      sg.gain.setValueAtTime(0.1, t + 0.07);
+      sg.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+      spring.connect(springLp).connect(sg).connect(dest);
+      spring.start(t + 0.07);
+      spring.stop(t + 0.2);
+
+      // 3. Open click — short high ping (lock body opening)
+      const click = ctx.createOscillator();
+      click.type = "sine";
+      click.frequency.setValueAtTime(2200, t + 0.16);
+      click.frequency.exponentialRampToValueAtTime(1200, t + 0.2);
+      const cg = ctx.createGain();
+      cg.gain.setValueAtTime(0.12, t + 0.16);
+      cg.gain.exponentialRampToValueAtTime(0.001, t + 0.24);
+      click.connect(cg).connect(dest);
+      click.start(t + 0.16);
+      click.stop(t + 0.26);
       break;
     }
 
