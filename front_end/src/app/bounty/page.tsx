@@ -60,6 +60,19 @@ interface IssueInfo {
   user?: { login: string; avatarUrl: string };
 }
 
+interface LinkedPR {
+  number: number;
+  title: string;
+  url: string;
+  state: string;
+  merged: boolean;
+  mergedAt: string | null;
+  author: string;
+  authorAvatar: string;
+  createdAt: string;
+  draft: boolean;
+}
+
 function RepoRow({ repo, onSelect }: { repo: GitHubRepo; onSelect: (r: GitHubRepo) => void }) {
   return (
     <button
@@ -185,6 +198,7 @@ export default function BountyPage() {
   const [loadingBounties, setLoadingBounties] = useState(false);
   const [issueInfoCache, setIssueInfoCache] = useState<Record<string, IssueInfo>>({});
   const [githubNames, setGithubNames] = useState<Record<string, string>>({});
+  const [linkedPRs, setLinkedPRs] = useState<Record<string, LinkedPR[]>>({});
 
   // Reads
   const { data: bountyCount } = useReadContract({
@@ -244,6 +258,23 @@ export default function BountyPage() {
       }
     });
   }, [bounties, fetchIssueInfo]);
+
+  // Fetch linked PRs for each bounty
+  useEffect(() => {
+    if (bounties.length === 0) return;
+    bounties.forEach((b) => {
+      const key = `${b.repoOwner}/${b.repoName}#${b.issueNumber}`;
+      if (linkedPRs[key]) return; // already fetched
+      fetch(`/api/github/linked-prs?owner=${b.repoOwner}&repo=${b.repoName}&issue=${b.issueNumber}`)
+        .then((r) => (r.ok ? r.json() : []))
+        .then((prs: LinkedPR[]) => {
+          if (prs.length > 0) {
+            setLinkedPRs((prev) => ({ ...prev, [key]: prs }));
+          }
+        })
+        .catch(() => {});
+    });
+  }, [bounties, linkedPRs]);
 
   // Auto-detect claimable bounties when on claim tab
   useEffect(() => {
@@ -866,6 +897,58 @@ export default function BountyPage() {
                               <span key={l.name} className="text-[10px] px-2 py-0.5 rounded-full border font-medium" style={{ borderColor: `#${l.color}40`, color: `#${l.color}`, backgroundColor: `#${l.color}15` }}>
                                 {l.name}
                               </span>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Linked PRs */}
+                        {linkedPRs[infoKey] && linkedPRs[infoKey].length > 0 && (
+                          <div className="space-y-1.5">
+                            {linkedPRs[infoKey].map((pr) => (
+                              <a
+                                key={pr.number}
+                                href={pr.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-xs transition-all hover:border-white/[0.15] ${
+                                  pr.merged
+                                    ? "bg-purple-500/[0.06] border-purple-500/20"
+                                    : pr.state === "open"
+                                    ? "bg-green-500/[0.06] border-green-500/20"
+                                    : "bg-red-500/[0.06] border-red-500/20"
+                                }`}
+                              >
+                                {/* PR icon */}
+                                <svg className={`w-3.5 h-3.5 shrink-0 ${pr.merged ? "text-purple-400" : pr.state === "open" ? "text-green-400" : "text-red-400"}`} viewBox="0 0 16 16" fill="currentColor">
+                                  {pr.merged ? (
+                                    <path d="M5.45 5.154A4.25 4.25 0 004 8.5a4.25 4.25 0 001.886 3.526.75.75 0 11-.772 1.288A5.75 5.75 0 013 8.5c0-1.56.621-3.072 1.745-4.105a.75.75 0 11.96 1.152l-.255-.393zm5.1 0A4.25 4.25 0 0012 8.5a4.25 4.25 0 01-1.886 3.526.75.75 0 10.772 1.288A5.75 5.75 0 0013 8.5c0-1.56-.621-3.072-1.745-4.105a.75.75 0 10-.96 1.152l.255-.393zM8 13.5a1.5 1.5 0 100-3 1.5 1.5 0 000 3zm0-10a1.5 1.5 0 100-3 1.5 1.5 0 000 3z" />
+                                  ) : (
+                                    <path d="M1.5 3.25a2.25 2.25 0 113 2.122v5.256a2.251 2.251 0 11-1.5 0V5.372A2.25 2.25 0 011.5 3.25zm5.677-.177L9.573.677A.25.25 0 0110 .854V2.5h1A2.5 2.5 0 0113.5 5v5.628a2.251 2.251 0 11-1.5 0V5a1 1 0 00-1-1h-1v1.646a.25.25 0 01-.427.177L7.177 3.427a.25.25 0 010-.354zM3.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm0 9.5a.75.75 0 100 1.5.75.75 0 000-1.5zm8.25.75a.75.75 0 10-1.5 0 .75.75 0 001.5 0z" />
+                                  )}
+                                </svg>
+                                <span className={`font-mono shrink-0 ${pr.merged ? "text-purple-400/70" : pr.state === "open" ? "text-green-400/70" : "text-red-400/70"}`}>
+                                  #{pr.number}
+                                </span>
+                                <span className="text-white/70 truncate">{pr.title}</span>
+                                <span className="ml-auto shrink-0 flex items-center gap-1.5">
+                                  {pr.draft && (
+                                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/[0.06] text-blue-300/40 font-medium">DRAFT</span>
+                                  )}
+                                  {pr.authorAvatar && (
+                                    <img src={pr.authorAvatar} alt={pr.author} className="w-4 h-4 rounded-full" />
+                                  )}
+                                  <span className="text-blue-300/30">{pr.author}</span>
+                                  <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${
+                                    pr.merged
+                                      ? "bg-purple-500/20 text-purple-300"
+                                      : pr.state === "open"
+                                      ? "bg-green-500/20 text-green-300"
+                                      : "bg-red-500/20 text-red-300"
+                                  }`}>
+                                    {pr.merged ? "Merged" : pr.state === "open" ? "Open" : "Closed"}
+                                  </span>
+                                </span>
+                              </a>
                             ))}
                           </div>
                         )}
