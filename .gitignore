@@ -46,3 +46,4 @@ smart_contract/scripts/uploadSecrets.*
 
 # Misc
 *.tsbuildinfo
+.next/
