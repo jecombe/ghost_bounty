@@ -1641,9 +1641,8 @@ export default function BountyPage() {
               </div>
             </div>
           )}
-        </div>
-      )}
-      {/* MY BOUNTIES */}
+
+          {/* MY BOUNTIES */}
       {tab === "my" && (() => {
         const addr = address?.toLowerCase();
         const zero = "0x0000000000000000000000000000000000000000";
@@ -1815,6 +1814,8 @@ export default function BountyPage() {
         );
       })()}
 
+        </div>
+      )}
       {/* Transaction Modal */}
       <TransactionModal
         open={txModalOpen}
