@@ -29,6 +29,7 @@ interface BountyInfo {
   status: number; // 0=Active, 1=Pending, 2=Verified, 3=Claimed, 4=Cancelled
   claimedBy: string;
   createdAt: number;
+  pendingSince: number;
 }
 
 interface GitHubRepo {
@@ -183,6 +184,7 @@ export default function BountyPage() {
   const [bounties, setBounties] = useState<BountyInfo[]>([]);
   const [loadingBounties, setLoadingBounties] = useState(false);
   const [issueInfoCache, setIssueInfoCache] = useState<Record<string, IssueInfo>>({});
+  const [githubNames, setGithubNames] = useState<Record<string, string>>({});
 
   // Reads
   const { data: bountyCount } = useReadContract({
@@ -384,8 +386,8 @@ export default function BountyPage() {
             functionName: "getBounty",
             args: [BigInt(i)],
           });
-          const [creator, rOwner, rName, iNum, status, claimedBy, createdAt] = result as unknown as [string, string, string, bigint, number, string, bigint];
-          loaded.push({ id: i, creator, repoOwner: rOwner, repoName: rName, issueNumber: Number(iNum), status, claimedBy, createdAt: Number(createdAt) });
+          const [creator, rOwner, rName, iNum, status, claimedBy, createdAt, pendingSince] = result as unknown as [string, string, string, bigint, number, string, bigint, bigint];
+          loaded.push({ id: i, creator, repoOwner: rOwner, repoName: rName, issueNumber: Number(iNum), status, claimedBy, createdAt: Number(createdAt), pendingSince: Number(pendingSince) });
         } catch {}
       }
       setBounties(loaded.reverse());
@@ -395,6 +397,37 @@ export default function BountyPage() {
   }, [publicClient, bountyCount]);
 
   useEffect(() => { loadBounties(); }, [loadBounties]);
+
+  // Resolve GitHub usernames for bounty addresses
+  useEffect(() => {
+    if (!publicClient || bounties.length === 0) return;
+    const zeroAddr = "0x0000000000000000000000000000000000000000";
+    const addresses = new Set<string>();
+    bounties.forEach((b) => {
+      addresses.add(b.creator.toLowerCase());
+      if (b.claimedBy && b.claimedBy !== zeroAddr) addresses.add(b.claimedBy.toLowerCase());
+    });
+    // Only resolve addresses we don't already have
+    const toResolve = [...addresses].filter((a) => !githubNames[a]);
+    if (toResolve.length === 0) return;
+    (async () => {
+      const resolved: Record<string, string> = {};
+      for (const addr of toResolve) {
+        try {
+          const name = await publicClient.readContract({
+            address: GHOST_BOUNTY_ADDRESS,
+            abi: GHOST_BOUNTY_ABI,
+            functionName: "devGithub",
+            args: [addr as `0x${string}`],
+          }) as string;
+          if (name) resolved[addr] = name;
+        } catch {}
+      }
+      if (Object.keys(resolved).length > 0) {
+        setGithubNames((prev) => ({ ...prev, ...resolved }));
+      }
+    })();
+  }, [publicClient, bounties, githubNames]);
 
   // --- Handlers ---
 
@@ -837,18 +870,52 @@ export default function BountyPage() {
                           </div>
                         )}
 
-                        {/* Meta row */}
-                        <div className="flex items-center justify-between text-xs text-blue-300/30">
-                          <div className="flex items-center gap-3">
-                            {info?.user?.avatarUrl && (
-                              <img src={info.user.avatarUrl} alt="" className="w-4 h-4 rounded-full" />
+                        {/* Info rows */}
+                        <div className="space-y-1.5 text-xs text-blue-300/30">
+                          {/* Creator */}
+                          <div className="flex items-center gap-2">
+                            <svg className="w-3 h-3 shrink-0 text-blue-300/20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+                            <span>Creator: </span>
+                            {githubNames[b.creator.toLowerCase()] ? (
+                              <a href={`https://github.com/${githubNames[b.creator.toLowerCase()]}`} target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:text-cyan-300">
+                                @{githubNames[b.creator.toLowerCase()]}
+                              </a>
+                            ) : (
+                              <span className="font-mono">{b.creator.slice(0, 6)}...{b.creator.slice(-4)}</span>
                             )}
-                            <span>by {b.creator.slice(0, 6)}...{b.creator.slice(-4)}</span>
                           </div>
-                          <span className="font-mono text-cyan-500/40 flex items-center gap-1">
-                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
-                            ENCRYPTED
-                          </span>
+                          {/* Receiver (if claimed/verified/pending) */}
+                          {b.claimedBy && b.claimedBy !== "0x0000000000000000000000000000000000000000" && (
+                            <div className="flex items-center gap-2">
+                              <svg className="w-3 h-3 shrink-0 text-blue-300/20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                              <span>{b.status === 3 ? "Paid to: " : "Claimed by: "}</span>
+                              {githubNames[b.claimedBy.toLowerCase()] ? (
+                                <a href={`https://github.com/${githubNames[b.claimedBy.toLowerCase()]}`} target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:text-cyan-300">
+                                  @{githubNames[b.claimedBy.toLowerCase()]}
+                                </a>
+                              ) : (
+                                <span className="font-mono">{b.claimedBy.slice(0, 6)}...{b.claimedBy.slice(-4)}</span>
+                              )}
+                            </div>
+                          )}
+                          {/* Dates row */}
+                          <div className="flex items-center gap-4 flex-wrap">
+                            <div className="flex items-center gap-1.5">
+                              <svg className="w-3 h-3 shrink-0 text-blue-300/20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                              <span>Created {new Date(b.createdAt * 1000).toLocaleDateString()}</span>
+                            </div>
+                            {b.pendingSince > 0 && (
+                              <div className="flex items-center gap-1.5">
+                                <svg className="w-3 h-3 shrink-0 text-blue-300/20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                <span>Pending since {new Date(b.pendingSince * 1000).toLocaleDateString()}</span>
+                              </div>
+                            )}
+                          </div>
+                          {/* Encrypted amount */}
+                          <div className="flex items-center gap-1.5">
+                            <svg className="w-3 h-3 shrink-0 text-cyan-500/40" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                            <span className="font-mono text-cyan-500/40">ENCRYPTED AMOUNT</span>
+                          </div>
                         </div>
 
                         {/* Actions */}
@@ -871,7 +938,7 @@ export default function BountyPage() {
                           {b.status === 3 && (
                             <span className="text-xs text-blue-300/30 flex items-center gap-1">
                               <svg className="w-3 h-3 text-cyan-500/50" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4" /></svg>
-                              Paid to {b.claimedBy.slice(0, 6)}...{b.claimedBy.slice(-4)}
+                              Paid to {githubNames[b.claimedBy.toLowerCase()] ? `@${githubNames[b.claimedBy.toLowerCase()]}` : `${b.claimedBy.slice(0, 6)}...${b.claimedBy.slice(-4)}`}
                             </span>
                           )}
                         </div>
