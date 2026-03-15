@@ -199,6 +199,7 @@ export default function BountyPage() {
   const [bounties, setBounties] = useState<BountyInfo[]>([]);
   const [loadingBounties, setLoadingBounties] = useState(false);
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "claimed" | "cancelled">("all");
+  const [myFilter, setMyFilter] = useState<"created" | "claimed" | "open">("created");
   const [issueInfoCache, setIssueInfoCache] = useState<Record<string, IssueInfo>>({});
   const [githubNames, setGithubNames] = useState<Record<string, string>>({});
   const [decryptedAmounts, setDecryptedAmounts] = useState<Record<number, string>>({});
@@ -1645,95 +1646,170 @@ export default function BountyPage() {
       {/* MY BOUNTIES */}
       {tab === "my" && (() => {
         const addr = address?.toLowerCase();
+        const zero = "0x0000000000000000000000000000000000000000";
         const created = bounties.filter((b) => b.creator.toLowerCase() === addr);
-        const claimed = bounties.filter((b) => b.claimedBy?.toLowerCase() === addr && b.claimedBy !== "0x0000000000000000000000000000000000000000");
-        // "Open" = bounties I created that are still active
+        const claimed = bounties.filter((b) => b.claimedBy?.toLowerCase() === addr && b.claimedBy !== zero);
         const open = created.filter((b) => b.status === 0);
-        const [myFilter, setMyFilter] = [statusFilter, setStatusFilter]; // reuse state
 
-        const sections: { key: string; label: string; items: BountyInfo[]; empty: string }[] = [
-          { key: "created", label: "Created by me", items: created, empty: "You haven't created any bounties yet" },
-          { key: "claimed", label: "Claimed / Received", items: claimed, empty: "You haven't claimed any bounties yet" },
-          { key: "open", label: "My open bounties", items: open, empty: "No active bounties" },
+        const filterDefs = [
+          { key: "created" as const, label: "Created", count: created.length },
+          { key: "claimed" as const, label: "Received", count: claimed.length },
+          { key: "open" as const, label: "Active", count: open.length },
         ];
-
-        const renderMiniCard = (b: BountyInfo) => {
-          const infoKey = `${b.repoOwner}/${b.repoName}#${b.issueNumber}`;
-          const info = issueInfoCache[infoKey];
-          const creatorGh = githubNames[b.creator.toLowerCase()];
-          const claimerGh = b.claimedBy && b.claimedBy !== "0x0000000000000000000000000000000000000000" ? githubNames[b.claimedBy.toLowerCase()] : null;
-
-          return (
-            <div key={b.id} className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-white/[0.02] border border-white/[0.05] hover:border-white/[0.1] transition-all">
-              {/* Status dot */}
-              <div className={`w-2 h-2 rounded-full shrink-0 ${
-                b.status === 0 ? "bg-green-400" : b.status === 3 ? "bg-purple-400" : b.status === 4 ? "bg-red-400/50" : "bg-amber-400"
-              }`} />
-
-              {/* Info */}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-blue-300/25 font-mono text-[10px]">#{b.id}</span>
-                  <a href={`https://github.com/${b.repoOwner}/${b.repoName}/issues/${b.issueNumber}`} target="_blank" rel="noopener noreferrer" className="text-cyan-400/70 hover:text-cyan-300 text-[11px] font-mono truncate">
-                    {b.repoOwner}/{b.repoName}#{b.issueNumber}
-                  </a>
-                </div>
-                {info?.title && (
-                  <p className="text-white/70 text-xs truncate mt-0.5">{info.title}</p>
-                )}
-              </div>
-
-              {/* Amount or badge */}
-              <div className="shrink-0 text-right">
-                {decryptedAmounts[b.id] ? (
-                  <span className="text-green-400/80 font-mono text-xs font-bold">{decryptedAmounts[b.id]}</span>
-                ) : (b.creator.toLowerCase() === addr || (b.claimedBy?.toLowerCase() === addr && b.status === 3)) ? (
-                  <button
-                    onClick={() => handleDecryptBountyAmount(b.id)}
-                    disabled={decryptingBounty === b.id || fheLoading}
-                    className="text-[10px] text-cyan-500/50 hover:text-cyan-400 font-mono disabled:opacity-40 transition-colors"
-                  >
-                    {decryptingBounty === b.id ? "..." : "Reveal"}
-                  </button>
-                ) : (
-                  <span className="text-[10px] text-cyan-500/30 font-mono">FHE</span>
-                )}
-              </div>
-
-              {/* Status */}
-              <span className={`shrink-0 text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${STATUS_BG[b.status]} ${STATUS_COLORS[b.status]}`}>
-                {STATUS_LABELS[b.status]}
-              </span>
-            </div>
-          );
-        };
+        const items = myFilter === "created" ? created : myFilter === "claimed" ? claimed : open;
+        const emptyMsg = myFilter === "created" ? "You haven't created any bounties yet" : myFilter === "claimed" ? "You haven't received any rewards yet" : "No active bounties";
 
         return (
-          <div className="space-y-5">
+          <div className="space-y-4">
             <h2 className="text-lg font-bold text-white">My Bounties</h2>
 
             {!address ? (
               <p className="text-blue-300/30 text-sm text-center py-8">Connect your wallet to see your bounties</p>
-            ) : bounties.length === 0 ? (
-              <p className="text-blue-300/30 text-sm text-center py-8">No bounties loaded yet</p>
             ) : (
-              <div className="space-y-5">
-                {sections.map((sec) => (
-                  <div key={sec.key}>
-                    <div className="flex items-center gap-2 mb-2">
-                      <h3 className="text-xs font-semibold text-blue-300/50 uppercase tracking-wider">{sec.label}</h3>
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-white/[0.04] text-blue-300/25">{sec.items.length}</span>
-                    </div>
-                    {sec.items.length === 0 ? (
-                      <p className="text-blue-300/20 text-xs py-3 pl-3">{sec.empty}</p>
-                    ) : (
-                      <div className="space-y-1.5">
-                        {sec.items.map(renderMiniCard)}
-                      </div>
-                    )}
+              <>
+                {/* Filter tabs */}
+                <div className="flex gap-1 p-1 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+                  {filterDefs.map((f) => (
+                    <button
+                      key={f.key}
+                      onClick={() => setMyFilter(f.key)}
+                      className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-medium transition-all flex items-center justify-center gap-1.5 ${
+                        myFilter === f.key
+                          ? "bg-white/[0.08] text-white shadow-sm"
+                          : "text-blue-300/30 hover:text-white/60"
+                      }`}
+                    >
+                      {f.label}
+                      {f.count > 0 && (
+                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                          myFilter === f.key ? "bg-cyan-500/20 text-cyan-300" : "bg-white/[0.04] text-blue-300/20"
+                        }`}>{f.count}</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+
+                {/* List */}
+                {items.length === 0 ? (
+                  <div className="text-center py-8">
+                    <p className="text-blue-300/30 text-sm">{emptyMsg}</p>
                   </div>
-                ))}
-              </div>
+                ) : (
+                  <div className="space-y-2.5">
+                    {items.map((b) => {
+                      const infoKey = `${b.repoOwner}/${b.repoName}#${b.issueNumber}`;
+                      const info = issueInfoCache[infoKey];
+                      const prs = linkedPRs[infoKey] || [];
+                      const claimerGh = b.claimedBy && b.claimedBy !== zero ? githubNames[b.claimedBy.toLowerCase()] : null;
+                      const isCreator = b.creator.toLowerCase() === addr;
+                      const isClaimer = b.claimedBy?.toLowerCase() === addr && b.claimedBy !== zero;
+                      const canReveal = isCreator || (isClaimer && b.status === 3);
+
+                      return (
+                        <div key={b.id} className={`rounded-xl border transition-all overflow-hidden ${
+                          b.status === 4 ? "bg-white/[0.01] border-white/[0.04] opacity-60" : "bg-white/[0.02] border-white/[0.06] hover:border-white/[0.12]"
+                        }`}>
+                          {/* Header */}
+                          <div className="px-4 pt-3 pb-2 flex items-start justify-between gap-3">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-0.5">
+                                <span className="text-blue-300/25 font-mono text-[10px]">#{b.id}</span>
+                                <a href={`https://github.com/${b.repoOwner}/${b.repoName}/issues/${b.issueNumber}`} target="_blank" rel="noopener noreferrer" className="text-cyan-400/80 hover:text-cyan-300 text-[11px] font-mono">
+                                  {b.repoOwner}/{b.repoName}#{b.issueNumber}
+                                </a>
+                              </div>
+                              {info?.title && (
+                                <p className="text-white text-sm font-medium leading-snug truncate">{info.title}</p>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              {/* Amount */}
+                              {decryptedAmounts[b.id] ? (
+                                <span className="text-green-400/80 font-mono text-xs font-bold">{decryptedAmounts[b.id]} USDC</span>
+                              ) : canReveal ? (
+                                <button
+                                  onClick={() => handleDecryptBountyAmount(b.id)}
+                                  disabled={decryptingBounty === b.id || fheLoading}
+                                  className="text-[10px] px-2 py-1 rounded-md bg-cyan-500/10 text-cyan-400/70 hover:text-cyan-300 hover:bg-cyan-500/15 font-mono disabled:opacity-40 transition-all border border-cyan-500/15"
+                                >
+                                  {decryptingBounty === b.id ? "..." : "Reveal"}
+                                </button>
+                              ) : null}
+                              <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border ${STATUS_BG[b.status]} ${STATUS_COLORS[b.status]}`}>
+                                {STATUS_LABELS[b.status]}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Labels */}
+                          {info?.labels && info.labels.length > 0 && (
+                            <div className="px-4 pb-2 flex flex-wrap gap-1">
+                              {info.labels.slice(0, 5).map((l) => (
+                                <span key={l.name} className="text-[9px] px-1.5 py-0.5 rounded-full border font-medium" style={{ borderColor: `#${l.color}30`, color: `#${l.color}`, backgroundColor: `#${l.color}10` }}>
+                                  {l.name}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* PRs */}
+                          {prs.length > 0 && (
+                            <div className="px-4 pb-2 space-y-1">
+                              {prs.map((pr) => (
+                                <a key={pr.number} href={pr.url} target="_blank" rel="noopener noreferrer"
+                                  className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] transition-all hover:bg-white/[0.03] ${
+                                    pr.merged ? "text-purple-400/80" : pr.state === "open" ? "text-green-400/80" : "text-red-400/80"
+                                  }`}
+                                >
+                                  <svg className="w-3 h-3 shrink-0" viewBox="0 0 16 16" fill="currentColor">
+                                    {pr.merged ? (
+                                      <path d="M5.45 5.154A4.25 4.25 0 004 8.5a4.25 4.25 0 001.886 3.526.75.75 0 11-.772 1.288A5.75 5.75 0 013 8.5c0-1.56.621-3.072 1.745-4.105a.75.75 0 11.96 1.152l-.255-.393zm5.1 0A4.25 4.25 0 0012 8.5a4.25 4.25 0 01-1.886 3.526.75.75 0 10.772 1.288A5.75 5.75 0 0013 8.5c0-1.56-.621-3.072-1.745-4.105a.75.75 0 10-.96 1.152l.255-.393zM8 13.5a1.5 1.5 0 100-3 1.5 1.5 0 000 3zm0-10a1.5 1.5 0 100-3 1.5 1.5 0 000 3z" />
+                                    ) : (
+                                      <path d="M1.5 3.25a2.25 2.25 0 113 2.122v5.256a2.251 2.251 0 11-1.5 0V5.372A2.25 2.25 0 011.5 3.25zm5.677-.177L9.573.677A.25.25 0 0110 .854V2.5h1A2.5 2.5 0 0113.5 5v5.628a2.251 2.251 0 11-1.5 0V5a1 1 0 00-1-1h-1v1.646a.25.25 0 01-.427.177L7.177 3.427a.25.25 0 010-.354zM3.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm0 9.5a.75.75 0 100 1.5.75.75 0 000-1.5zm8.25.75a.75.75 0 10-1.5 0 .75.75 0 001.5 0z" />
+                                    )}
+                                  </svg>
+                                  <span className="font-mono">#{pr.number}</span>
+                                  <span className="text-white/50 truncate">{pr.title}</span>
+                                  {pr.authorAvatar && <img src={pr.authorAvatar} alt="" className="w-3.5 h-3.5 rounded-full ml-auto shrink-0" />}
+                                  <span className={`text-[8px] font-bold uppercase px-1 py-0.5 rounded shrink-0 ${
+                                    pr.merged ? "bg-purple-500/15 text-purple-300" : pr.state === "open" ? "bg-green-500/15 text-green-300" : "bg-red-500/15 text-red-300"
+                                  }`}>{pr.merged ? "Merged" : pr.state === "open" ? "Open" : "Closed"}</span>
+                                </a>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Footer */}
+                          <div className="px-4 py-2 bg-white/[0.01] border-t border-white/[0.04] flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-3 text-[10px] text-blue-300/25">
+                              <span>{new Date(b.createdAt * 1000).toLocaleDateString()}</span>
+                              {claimerGh && b.status === 3 && (
+                                <span className="flex items-center gap-1">
+                                  <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg>
+                                  <a href={`https://github.com/${claimerGh}`} target="_blank" rel="noopener noreferrer" className="text-cyan-400/60 hover:text-cyan-300">@{claimerGh}</a>
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {b.status === 0 && isCreator && (
+                                <button onClick={() => handleCancel(b.id)} className="text-[10px] px-2.5 py-1 rounded-md bg-red-500/10 text-red-400/70 hover:bg-red-500/20 border border-red-500/15 font-medium transition-all">
+                                  Cancel
+                                </button>
+                              )}
+                              {b.status === 3 && (
+                                <span className="text-[10px] text-green-400/50 flex items-center gap-1 font-medium">
+                                  <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4" /></svg>
+                                  Completed
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
             )}
           </div>
         );
