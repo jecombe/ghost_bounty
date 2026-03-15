@@ -198,6 +198,7 @@ export default function BountyPage() {
   // --- Browse ---
   const [bounties, setBounties] = useState<BountyInfo[]>([]);
   const [loadingBounties, setLoadingBounties] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "claimed" | "cancelled">("all");
   const [issueInfoCache, setIssueInfoCache] = useState<Record<string, IssueInfo>>({});
   const [githubNames, setGithubNames] = useState<Record<string, string>>({});
   const [linkedPRs, setLinkedPRs] = useState<Record<string, LinkedPR[]>>({});
@@ -870,15 +871,59 @@ export default function BountyPage() {
         <div className="panel-military rounded-2xl p-6 border border-amber-900/20 space-y-5">
 
           {/* BROWSE */}
-          {tab === "browse" && (
+          {tab === "browse" && (() => {
+            const filterMap: Record<string, (b: BountyInfo) => boolean> = {
+              all: () => true,
+              active: (b) => b.status === 0,
+              claimed: (b) => b.status === 1 || b.status === 2 || b.status === 3,
+              cancelled: (b) => b.status === 4,
+            };
+            const filtered = bounties.filter(filterMap[statusFilter]);
+            const counts = {
+              all: bounties.length,
+              active: bounties.filter((b) => b.status === 0).length,
+              claimed: bounties.filter((b) => b.status === 1 || b.status === 2 || b.status === 3).length,
+              cancelled: bounties.filter((b) => b.status === 4).length,
+            };
+            return (
             <div className="space-y-4">
+              {/* Header */}
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-bold text-white">Bounties</h2>
-                <button onClick={loadBounties} className="text-xs text-cyan-400 hover:text-cyan-300 flex items-center gap-1">
-                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                <button onClick={loadBounties} className="text-xs text-cyan-400 hover:text-cyan-300 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-cyan-500/10 transition-all">
+                  <svg className={`w-3.5 h-3.5 ${loadingBounties ? "animate-spin" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
                   Refresh
                 </button>
               </div>
+
+              {/* Filter tabs */}
+              <div className="flex gap-1 p-1 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+                {([
+                  { key: "all", label: "All" },
+                  { key: "active", label: "Active" },
+                  { key: "claimed", label: "Claimed" },
+                  { key: "cancelled", label: "Cancelled" },
+                ] as const).map((f) => (
+                  <button
+                    key={f.key}
+                    onClick={() => setStatusFilter(f.key)}
+                    className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-medium transition-all flex items-center justify-center gap-1.5 ${
+                      statusFilter === f.key
+                        ? "bg-white/[0.08] text-white shadow-sm"
+                        : "text-blue-300/30 hover:text-white/60"
+                    }`}
+                  >
+                    {f.label}
+                    {counts[f.key] > 0 && (
+                      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                        statusFilter === f.key ? "bg-cyan-500/20 text-cyan-300" : "bg-white/[0.04] text-blue-300/20"
+                      }`}>{counts[f.key]}</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+
+              {/* Content */}
               {loadingBounties ? (
                 <div className="flex items-center justify-center gap-2 py-8">
                   <div className="w-4 h-4 rounded-full border-2 border-cyan-400 border-t-transparent animate-spin" />
@@ -892,37 +937,47 @@ export default function BountyPage() {
                   <p className="text-blue-300/40 text-sm">No bounties yet</p>
                   <button onClick={() => setTab("create")} className="text-xs text-cyan-400 hover:text-cyan-300">Create the first one</button>
                 </div>
+              ) : filtered.length === 0 ? (
+                <div className="text-center py-8">
+                  <p className="text-blue-300/30 text-sm">No {statusFilter} bounties</p>
+                </div>
               ) : (
-                <div className="space-y-3">
-                  {bounties.map((b) => {
+                <div className="space-y-2.5">
+                  {filtered.map((b) => {
                     const infoKey = `${b.repoOwner}/${b.repoName}#${b.issueNumber}`;
                     const info = issueInfoCache[infoKey];
+                    const prs = linkedPRs[infoKey] || [];
+                    const creatorGh = githubNames[b.creator.toLowerCase()];
+                    const claimerGh = b.claimedBy && b.claimedBy !== "0x0000000000000000000000000000000000000000" ? githubNames[b.claimedBy.toLowerCase()] : null;
+                    const hasMergedPR = prs.some((pr) => pr.merged);
+
                     return (
-                      <div key={b.id} className="p-4 rounded-xl bg-white/[0.02] border border-white/[0.06] hover:border-white/[0.1] transition-all space-y-3">
-                        {/* Top row: ID + Status badge */}
-                        <div className="flex items-start justify-between gap-3">
+                      <div key={b.id} className={`rounded-xl border transition-all overflow-hidden ${
+                        b.status === 4 ? "bg-white/[0.01] border-white/[0.04] opacity-60" : "bg-white/[0.02] border-white/[0.06] hover:border-white/[0.12]"
+                      }`}>
+                        {/* Card header */}
+                        <div className="px-4 pt-3 pb-2 flex items-start justify-between gap-3">
                           <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-1">
-                              <span className="text-blue-300/30 font-mono text-xs">#{b.id}</span>
-                              <a href={`https://github.com/${b.repoOwner}/${b.repoName}/issues/${b.issueNumber}`} target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:text-cyan-300 text-xs font-medium font-mono">
+                            <div className="flex items-center gap-2 mb-0.5">
+                              <span className="text-blue-300/25 font-mono text-[10px]">#{b.id}</span>
+                              <a href={`https://github.com/${b.repoOwner}/${b.repoName}/issues/${b.issueNumber}`} target="_blank" rel="noopener noreferrer" className="text-cyan-400/80 hover:text-cyan-300 text-[11px] font-mono">
                                 {b.repoOwner}/{b.repoName}#{b.issueNumber}
                               </a>
                             </div>
-                            {/* Issue title from GitHub */}
                             {info?.title && (
                               <p className="text-white text-sm font-medium leading-snug truncate">{info.title}</p>
                             )}
                           </div>
-                          <span className={`shrink-0 text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full border ${STATUS_BG[b.status]} ${STATUS_COLORS[b.status]}`}>
+                          <span className={`shrink-0 text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border ${STATUS_BG[b.status]} ${STATUS_COLORS[b.status]}`}>
                             {STATUS_LABELS[b.status]}
                           </span>
                         </div>
 
-                        {/* Labels from GitHub */}
+                        {/* Labels */}
                         {info?.labels && info.labels.length > 0 && (
-                          <div className="flex flex-wrap gap-1.5">
+                          <div className="px-4 pb-2 flex flex-wrap gap-1">
                             {info.labels.slice(0, 5).map((l) => (
-                              <span key={l.name} className="text-[10px] px-2 py-0.5 rounded-full border font-medium" style={{ borderColor: `#${l.color}40`, color: `#${l.color}`, backgroundColor: `#${l.color}15` }}>
+                              <span key={l.name} className="text-[9px] px-1.5 py-0.5 rounded-full border font-medium" style={{ borderColor: `#${l.color}30`, color: `#${l.color}`, backgroundColor: `#${l.color}10` }}>
                                 {l.name}
                               </span>
                             ))}
@@ -930,134 +985,92 @@ export default function BountyPage() {
                         )}
 
                         {/* Linked PRs */}
-                        {linkedPRs[infoKey] && linkedPRs[infoKey].length > 0 && (
-                          <div className="space-y-1.5">
-                            {linkedPRs[infoKey].map((pr) => (
-                              <a
-                                key={pr.number}
-                                href={pr.url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-xs transition-all hover:border-white/[0.15] ${
-                                  pr.merged
-                                    ? "bg-purple-500/[0.06] border-purple-500/20"
-                                    : pr.state === "open"
-                                    ? "bg-green-500/[0.06] border-green-500/20"
-                                    : "bg-red-500/[0.06] border-red-500/20"
+                        {prs.length > 0 && (
+                          <div className="px-4 pb-2 space-y-1">
+                            {prs.map((pr) => (
+                              <a key={pr.number} href={pr.url} target="_blank" rel="noopener noreferrer"
+                                className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] transition-all hover:bg-white/[0.03] ${
+                                  pr.merged ? "text-purple-400/80" : pr.state === "open" ? "text-green-400/80" : "text-red-400/80"
                                 }`}
                               >
-                                {/* PR icon */}
-                                <svg className={`w-3.5 h-3.5 shrink-0 ${pr.merged ? "text-purple-400" : pr.state === "open" ? "text-green-400" : "text-red-400"}`} viewBox="0 0 16 16" fill="currentColor">
+                                <svg className="w-3 h-3 shrink-0" viewBox="0 0 16 16" fill="currentColor">
                                   {pr.merged ? (
                                     <path d="M5.45 5.154A4.25 4.25 0 004 8.5a4.25 4.25 0 001.886 3.526.75.75 0 11-.772 1.288A5.75 5.75 0 013 8.5c0-1.56.621-3.072 1.745-4.105a.75.75 0 11.96 1.152l-.255-.393zm5.1 0A4.25 4.25 0 0012 8.5a4.25 4.25 0 01-1.886 3.526.75.75 0 10.772 1.288A5.75 5.75 0 0013 8.5c0-1.56-.621-3.072-1.745-4.105a.75.75 0 10-.96 1.152l.255-.393zM8 13.5a1.5 1.5 0 100-3 1.5 1.5 0 000 3zm0-10a1.5 1.5 0 100-3 1.5 1.5 0 000 3z" />
                                   ) : (
                                     <path d="M1.5 3.25a2.25 2.25 0 113 2.122v5.256a2.251 2.251 0 11-1.5 0V5.372A2.25 2.25 0 011.5 3.25zm5.677-.177L9.573.677A.25.25 0 0110 .854V2.5h1A2.5 2.5 0 0113.5 5v5.628a2.251 2.251 0 11-1.5 0V5a1 1 0 00-1-1h-1v1.646a.25.25 0 01-.427.177L7.177 3.427a.25.25 0 010-.354zM3.75 2.5a.75.75 0 100 1.5.75.75 0 000-1.5zm0 9.5a.75.75 0 100 1.5.75.75 0 000-1.5zm8.25.75a.75.75 0 10-1.5 0 .75.75 0 001.5 0z" />
                                   )}
                                 </svg>
-                                <span className={`font-mono shrink-0 ${pr.merged ? "text-purple-400/70" : pr.state === "open" ? "text-green-400/70" : "text-red-400/70"}`}>
-                                  #{pr.number}
-                                </span>
-                                <span className="text-white/70 truncate">{pr.title}</span>
-                                <span className="ml-auto shrink-0 flex items-center gap-1.5">
-                                  {pr.draft && (
-                                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/[0.06] text-blue-300/40 font-medium">DRAFT</span>
-                                  )}
-                                  {pr.authorAvatar && (
-                                    <img src={pr.authorAvatar} alt={pr.author} className="w-4 h-4 rounded-full" />
-                                  )}
-                                  <span className="text-blue-300/30">{pr.author}</span>
-                                  <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${
-                                    pr.merged
-                                      ? "bg-purple-500/20 text-purple-300"
-                                      : pr.state === "open"
-                                      ? "bg-green-500/20 text-green-300"
-                                      : "bg-red-500/20 text-red-300"
-                                  }`}>
-                                    {pr.merged ? "Merged" : pr.state === "open" ? "Open" : "Closed"}
-                                  </span>
-                                </span>
+                                <span className="font-mono">#{pr.number}</span>
+                                <span className="text-white/50 truncate">{pr.title}</span>
+                                {pr.authorAvatar && <img src={pr.authorAvatar} alt="" className="w-3.5 h-3.5 rounded-full ml-auto shrink-0" />}
+                                <span className={`text-[8px] font-bold uppercase px-1 py-0.5 rounded shrink-0 ${
+                                  pr.merged ? "bg-purple-500/15 text-purple-300" : pr.state === "open" ? "bg-green-500/15 text-green-300" : "bg-red-500/15 text-red-300"
+                                }`}>{pr.merged ? "Merged" : pr.state === "open" ? "Open" : "Closed"}</span>
                               </a>
                             ))}
                           </div>
                         )}
 
-                        {/* Info rows */}
-                        <div className="space-y-1.5 text-xs text-blue-300/30">
-                          {/* Creator */}
-                          <div className="flex items-center gap-2">
-                            <svg className="w-3 h-3 shrink-0 text-blue-300/20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
-                            <span>Creator: </span>
-                            {githubNames[b.creator.toLowerCase()] ? (
-                              <a href={`https://github.com/${githubNames[b.creator.toLowerCase()]}`} target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:text-cyan-300">
-                                @{githubNames[b.creator.toLowerCase()]}
-                              </a>
-                            ) : (
-                              <span className="font-mono">{b.creator.slice(0, 6)}...{b.creator.slice(-4)}</span>
-                            )}
-                          </div>
-                          {/* Receiver (if claimed/verified/pending) */}
-                          {b.claimedBy && b.claimedBy !== "0x0000000000000000000000000000000000000000" && (
-                            <div className="flex items-center gap-2">
-                              <svg className="w-3 h-3 shrink-0 text-blue-300/20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                              <span>{b.status === 3 ? "Paid to: " : "Claimed by: "}</span>
-                              {githubNames[b.claimedBy.toLowerCase()] ? (
-                                <a href={`https://github.com/${githubNames[b.claimedBy.toLowerCase()]}`} target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:text-cyan-300">
-                                  @{githubNames[b.claimedBy.toLowerCase()]}
-                                </a>
+                        {/* Footer: meta + actions */}
+                        <div className="px-4 py-2.5 bg-white/[0.01] border-t border-white/[0.04] flex items-center justify-between gap-3">
+                          {/* Meta */}
+                          <div className="flex items-center gap-3 text-[10px] text-blue-300/25 min-w-0">
+                            <span className="flex items-center gap-1 shrink-0">
+                              {creatorGh ? (
+                                <a href={`https://github.com/${creatorGh}`} target="_blank" rel="noopener noreferrer" className="text-cyan-400/60 hover:text-cyan-300">@{creatorGh}</a>
                               ) : (
-                                <span className="font-mono">{b.claimedBy.slice(0, 6)}...{b.claimedBy.slice(-4)}</span>
+                                <span className="font-mono">{b.creator.slice(0, 6)}...{b.creator.slice(-4)}</span>
                               )}
-                            </div>
-                          )}
-                          {/* Dates row */}
-                          <div className="flex items-center gap-4 flex-wrap">
-                            <div className="flex items-center gap-1.5">
-                              <svg className="w-3 h-3 shrink-0 text-blue-300/20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                              <span>Created {new Date(b.createdAt * 1000).toLocaleDateString()}</span>
-                            </div>
-                            {b.pendingSince > 0 && (b.status === 1 || b.status === 2) && (
-                              <div className="flex items-center gap-1.5">
-                                <svg className="w-3 h-3 shrink-0 text-blue-300/20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                <span>Pending since {new Date(b.pendingSince * 1000).toLocaleDateString()}</span>
-                              </div>
+                            </span>
+                            <span className="shrink-0">{new Date(b.createdAt * 1000).toLocaleDateString()}</span>
+                            {claimerGh && (
+                              <span className="flex items-center gap-1 shrink-0">
+                                <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg>
+                                <a href={`https://github.com/${claimerGh}`} target="_blank" rel="noopener noreferrer" className="text-cyan-400/60 hover:text-cyan-300">@{claimerGh}</a>
+                              </span>
+                            )}
+                            {!claimerGh && b.claimedBy && b.claimedBy !== "0x0000000000000000000000000000000000000000" && (
+                              <span className="flex items-center gap-1 shrink-0">
+                                <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg>
+                                <span className="font-mono">{b.claimedBy.slice(0, 6)}...{b.claimedBy.slice(-4)}</span>
+                              </span>
+                            )}
+                            <span className="font-mono text-cyan-500/30 flex items-center gap-0.5 shrink-0">
+                              <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
+                              FHE
+                            </span>
+                          </div>
+
+                          {/* Actions */}
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {b.status === 0 && hasMergedPR && (
+                              <button onClick={() => handleClaimFromBrowse(b)} className="text-[10px] px-2.5 py-1 rounded-md bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20 border border-cyan-500/20 font-semibold transition-all">
+                                Claim
+                              </button>
+                            )}
+                            {b.status === 0 && !hasMergedPR && (
+                              <span className="text-[10px] text-blue-300/20 flex items-center gap-1">
+                                <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                {prs.length ? "PR pending" : "No PR"}
+                              </span>
+                            )}
+                            {b.status === 0 && b.creator.toLowerCase() === address?.toLowerCase() && (
+                              <button onClick={() => handleCancel(b.id)} className="text-[10px] px-2.5 py-1 rounded-md bg-red-500/10 text-red-400/70 hover:bg-red-500/20 border border-red-500/15 font-medium transition-all">
+                                Cancel
+                              </button>
+                            )}
+                            {b.status === 2 && b.claimedBy.toLowerCase() === address?.toLowerCase() && (
+                              <button onClick={() => handleExecuteClaim(b.id)} className="text-[10px] px-2.5 py-1 rounded-md bg-purple-500/10 text-purple-300 hover:bg-purple-500/20 border border-purple-500/20 font-semibold transition-all animate-pulse">
+                                Execute Payment
+                              </button>
+                            )}
+                            {b.status === 3 && (
+                              <span className="text-[10px] text-green-400/50 flex items-center gap-1 font-medium">
+                                <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4" /></svg>
+                                Completed
+                              </span>
                             )}
                           </div>
-                          {/* Encrypted amount */}
-                          <div className="flex items-center gap-1.5">
-                            <svg className="w-3 h-3 shrink-0 text-cyan-500/40" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>
-                            <span className="font-mono text-cyan-500/40">ENCRYPTED AMOUNT</span>
-                          </div>
-                        </div>
-
-                        {/* Actions */}
-                        <div className="flex gap-2 pt-1">
-                          {b.status === 0 && linkedPRs[infoKey]?.some((pr) => pr.merged) && (
-                            <button onClick={() => handleClaimFromBrowse(b)} className="text-xs px-3 py-1.5 rounded-lg bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20 border border-cyan-500/20 transition-all">
-                              Claim this bounty
-                            </button>
-                          )}
-                          {b.status === 0 && !linkedPRs[infoKey]?.some((pr) => pr.merged) && (
-                            <span className="text-xs text-blue-300/20 flex items-center gap-1">
-                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                              {linkedPRs[infoKey]?.length ? "Waiting for PR to be merged" : "No PR linked yet"}
-                            </span>
-                          )}
-                          {b.status === 0 && b.creator.toLowerCase() === address?.toLowerCase() && (
-                            <button onClick={() => handleCancel(b.id)} className="text-xs px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20 transition-all">
-                              Cancel
-                            </button>
-                          )}
-                          {b.status === 2 && b.claimedBy.toLowerCase() === address?.toLowerCase() && (
-                            <button onClick={() => handleExecuteClaim(b.id)} className="text-xs px-3 py-1.5 rounded-lg bg-purple-500/10 text-purple-300 hover:bg-purple-500/20 border border-purple-500/20 transition-all animate-pulse">
-                              Execute Payment
-                            </button>
-                          )}
-                          {b.status === 3 && (
-                            <span className="text-xs text-green-400/60 flex items-center gap-1">
-                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4" /></svg>
-                              Completed
-                            </span>
-                          )}
                         </div>
                       </div>
                     );
@@ -1065,7 +1078,8 @@ export default function BountyPage() {
                 </div>
               )}
             </div>
-          )}
+            );
+          })()}
 
           {/* CREATE */}
           {tab === "create" && (
