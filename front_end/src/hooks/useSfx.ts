@@ -19,7 +19,9 @@ type SfxType =
   | "execute"        // execute claim payment
   | "connect"        // connect wallet / sign in
   | "success"        // success feedback
-  | "error";         // error feedback
+  | "error"          // error feedback
+  | "reveal"         // decrypt / reveal encrypted data
+  | "select";        // select item (repo, issue, filter)
 
 function noteFreq(note: number) {
   return 440 * Math.pow(2, (note - 69) / 12);
@@ -230,6 +232,46 @@ function playSfx(ctx: AudioContext, dest: GainNode, type: SfxType) {
         osc.start(t + i * 0.06);
         osc.stop(t + i * 0.06 + 0.45);
       });
+      break;
+    }
+
+    case "reveal": {
+      // Mysterious unlock - descending shimmer with harmonics
+      const osc = ctx.createOscillator();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(1400, t);
+      osc.frequency.exponentialRampToValueAtTime(600, t + 0.25);
+      const osc2 = ctx.createOscillator();
+      osc2.type = "triangle";
+      osc2.frequency.setValueAtTime(2100, t);
+      osc2.frequency.exponentialRampToValueAtTime(900, t + 0.3);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.1, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
+      const g2 = ctx.createGain();
+      g2.gain.setValueAtTime(0.05, t);
+      g2.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+      osc.connect(g).connect(dest);
+      osc2.connect(g2).connect(dest);
+      osc.start(t);
+      osc.stop(t + 0.4);
+      osc2.start(t);
+      osc2.stop(t + 0.35);
+      break;
+    }
+
+    case "select": {
+      // Soft pop - quick gentle tap
+      const osc = ctx.createOscillator();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(900, t);
+      osc.frequency.exponentialRampToValueAtTime(1100, t + 0.04);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.1, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
+      osc.connect(g).connect(dest);
+      osc.start(t);
+      osc.stop(t + 0.08);
       break;
     }
 

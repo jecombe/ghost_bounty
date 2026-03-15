@@ -490,6 +490,7 @@ export default function BountyPage() {
   // Decrypt a bounty reward amount (only creator or claimedBy can do this)
   const handleDecryptBountyAmount = useCallback(async (bountyId: number) => {
     if (!publicClient || !instance || !ethersSigner || !address) return;
+    playSfx("reveal");
     setDecryptingBounty(bountyId);
     try {
       // Read the encrypted handle — must use account so msg.sender is set
@@ -688,6 +689,7 @@ export default function BountyPage() {
 
   // Handle selecting a repo from picker
   const handleSelectRepo = (repo: GitHubRepo) => {
+    playSfx("select");
     setSelectedRepo(repo);
     setRepoOwner(repo.owner);
     setRepoName(repo.name);
@@ -700,6 +702,7 @@ export default function BountyPage() {
 
   // Handle selecting an issue from picker
   const handleSelectIssue = (issue: GitHubIssue) => {
+    playSfx("select");
     setSelectedIssue(issue);
     setIssueNumber(String(issue.number));
     setShowIssuePicker(false);
@@ -958,7 +961,7 @@ export default function BountyPage() {
                 ] as const).map((f) => (
                   <button
                     key={f.key}
-                    onClick={() => setStatusFilter(f.key)}
+                    onClick={() => { playSfx("click"); setStatusFilter(f.key); }}
                     className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-medium transition-all flex items-center justify-center gap-1.5 ${
                       statusFilter === f.key
                         ? "bg-white/[0.08] text-white shadow-sm"
@@ -1310,7 +1313,7 @@ export default function BountyPage() {
                     {["25", "50", "100", "250", "500"].map((amt) => (
                       <button
                         key={amt}
-                        onClick={() => setBountyAmount(amt)}
+                        onClick={() => { playSfx("click"); setBountyAmount(amt); }}
                         className={`flex-1 py-1.5 rounded-lg text-xs font-mono transition-all border ${bountyAmount === amt ? "bg-cyan-500/15 text-cyan-300 border-cyan-500/25" : "bg-white/[0.02] text-blue-300/30 border-white/[0.04] hover:text-white hover:border-white/[0.1]"}`}
                       >
                         ${amt}
@@ -1388,7 +1391,7 @@ export default function BountyPage() {
                     <p className="text-purple-300/70 text-xs">You have encrypted cUSDC — decrypt to pay directly with it</p>
                   </div>
                   <button
-                    onClick={decrypt}
+                    onClick={() => { playSfx("reveal"); decrypt(); }}
                     disabled={!canDecrypt || decrypting}
                     className="shrink-0 text-[10px] px-2.5 py-1.5 rounded-lg bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 disabled:opacity-40 transition-all font-semibold"
                   >
@@ -1403,13 +1406,13 @@ export default function BountyPage() {
                   <label className="block text-xs font-medium text-blue-300/50">Pay with</label>
                   <div className="flex rounded-xl overflow-hidden border border-white/[0.08]">
                     <button
-                      onClick={() => setPayWithCusdc(false)}
+                      onClick={() => { playSfx("click"); setPayWithCusdc(false); }}
                       className={`flex-1 py-2 text-xs font-semibold transition-all ${!payWithCusdc ? "bg-cyan-500/15 text-cyan-300 border-r border-cyan-500/25" : "bg-white/[0.02] text-blue-300/30 border-r border-white/[0.06] hover:text-white"}`}
                     >
                       USDC
                     </button>
                     <button
-                      onClick={() => setPayWithCusdc(true)}
+                      onClick={() => { playSfx("click"); setPayWithCusdc(true); }}
                       className={`flex-1 py-2 text-xs font-semibold transition-all ${payWithCusdc ? "bg-purple-500/15 text-purple-300" : "bg-white/[0.02] text-blue-300/30 hover:text-white"}`}
                     >
                       cUSDC (encrypted)
@@ -1428,7 +1431,7 @@ export default function BountyPage() {
                     </div>
                     {cusdcBalance === null && (
                       <button
-                        onClick={decrypt}
+                        onClick={() => { playSfx("reveal"); decrypt(); }}
                         disabled={!canDecrypt || decrypting}
                         className="text-[10px] px-2 py-1 rounded-lg bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 disabled:opacity-40 transition-all font-semibold"
                       >
@@ -1671,7 +1674,7 @@ export default function BountyPage() {
                   {filterDefs.map((f) => (
                     <button
                       key={f.key}
-                      onClick={() => setMyFilter(f.key)}
+                      onClick={() => { playSfx("click"); setMyFilter(f.key); }}
                       className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-medium transition-all flex items-center justify-center gap-1.5 ${
                         myFilter === f.key
                           ? "bg-white/[0.08] text-white shadow-sm"
