@@ -19,7 +19,7 @@ import { toHexString } from "@/lib/fhe/sdk";
 import { TransactionModal, type TxStep } from "@/components/TransactionModal";
 import { useSfx } from "@/hooks/useSfx";
 
-type Tab = "create" | "browse" | "claim";
+type Tab = "create" | "browse" | "claim" | "my";
 
 interface BountyInfo {
   id: number;
@@ -782,6 +782,7 @@ export default function BountyPage() {
     { id: "browse", label: "Bounties", icon: <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg> },
     { id: "create", label: "Create", icon: <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg> },
     { id: "claim", label: "Claim", icon: <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg> },
+    { id: "my", label: "My Bounties", icon: <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg> },
   ];
 
   return (
@@ -1641,6 +1642,103 @@ export default function BountyPage() {
           )}
         </div>
       )}
+      {/* MY BOUNTIES */}
+      {tab === "my" && (() => {
+        const addr = address?.toLowerCase();
+        const created = bounties.filter((b) => b.creator.toLowerCase() === addr);
+        const claimed = bounties.filter((b) => b.claimedBy?.toLowerCase() === addr && b.claimedBy !== "0x0000000000000000000000000000000000000000");
+        // "Open" = bounties I created that are still active
+        const open = created.filter((b) => b.status === 0);
+        const [myFilter, setMyFilter] = [statusFilter, setStatusFilter]; // reuse state
+
+        const sections: { key: string; label: string; items: BountyInfo[]; empty: string }[] = [
+          { key: "created", label: "Created by me", items: created, empty: "You haven't created any bounties yet" },
+          { key: "claimed", label: "Claimed / Received", items: claimed, empty: "You haven't claimed any bounties yet" },
+          { key: "open", label: "My open bounties", items: open, empty: "No active bounties" },
+        ];
+
+        const renderMiniCard = (b: BountyInfo) => {
+          const infoKey = `${b.repoOwner}/${b.repoName}#${b.issueNumber}`;
+          const info = issueInfoCache[infoKey];
+          const creatorGh = githubNames[b.creator.toLowerCase()];
+          const claimerGh = b.claimedBy && b.claimedBy !== "0x0000000000000000000000000000000000000000" ? githubNames[b.claimedBy.toLowerCase()] : null;
+
+          return (
+            <div key={b.id} className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-white/[0.02] border border-white/[0.05] hover:border-white/[0.1] transition-all">
+              {/* Status dot */}
+              <div className={`w-2 h-2 rounded-full shrink-0 ${
+                b.status === 0 ? "bg-green-400" : b.status === 3 ? "bg-purple-400" : b.status === 4 ? "bg-red-400/50" : "bg-amber-400"
+              }`} />
+
+              {/* Info */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-blue-300/25 font-mono text-[10px]">#{b.id}</span>
+                  <a href={`https://github.com/${b.repoOwner}/${b.repoName}/issues/${b.issueNumber}`} target="_blank" rel="noopener noreferrer" className="text-cyan-400/70 hover:text-cyan-300 text-[11px] font-mono truncate">
+                    {b.repoOwner}/{b.repoName}#{b.issueNumber}
+                  </a>
+                </div>
+                {info?.title && (
+                  <p className="text-white/70 text-xs truncate mt-0.5">{info.title}</p>
+                )}
+              </div>
+
+              {/* Amount or badge */}
+              <div className="shrink-0 text-right">
+                {decryptedAmounts[b.id] ? (
+                  <span className="text-green-400/80 font-mono text-xs font-bold">{decryptedAmounts[b.id]}</span>
+                ) : (b.creator.toLowerCase() === addr || (b.claimedBy?.toLowerCase() === addr && b.status === 3)) ? (
+                  <button
+                    onClick={() => handleDecryptBountyAmount(b.id)}
+                    disabled={decryptingBounty === b.id || fheLoading}
+                    className="text-[10px] text-cyan-500/50 hover:text-cyan-400 font-mono disabled:opacity-40 transition-colors"
+                  >
+                    {decryptingBounty === b.id ? "..." : "Reveal"}
+                  </button>
+                ) : (
+                  <span className="text-[10px] text-cyan-500/30 font-mono">FHE</span>
+                )}
+              </div>
+
+              {/* Status */}
+              <span className={`shrink-0 text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${STATUS_BG[b.status]} ${STATUS_COLORS[b.status]}`}>
+                {STATUS_LABELS[b.status]}
+              </span>
+            </div>
+          );
+        };
+
+        return (
+          <div className="space-y-5">
+            <h2 className="text-lg font-bold text-white">My Bounties</h2>
+
+            {!address ? (
+              <p className="text-blue-300/30 text-sm text-center py-8">Connect your wallet to see your bounties</p>
+            ) : bounties.length === 0 ? (
+              <p className="text-blue-300/30 text-sm text-center py-8">No bounties loaded yet</p>
+            ) : (
+              <div className="space-y-5">
+                {sections.map((sec) => (
+                  <div key={sec.key}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <h3 className="text-xs font-semibold text-blue-300/50 uppercase tracking-wider">{sec.label}</h3>
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-white/[0.04] text-blue-300/25">{sec.items.length}</span>
+                    </div>
+                    {sec.items.length === 0 ? (
+                      <p className="text-blue-300/20 text-xs py-3 pl-3">{sec.empty}</p>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {sec.items.map(renderMiniCard)}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
       {/* Transaction Modal */}
       <TransactionModal
         open={txModalOpen}
